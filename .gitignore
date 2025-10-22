@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node / UI build outputs (if you add later)
+dist/
+build/
+
+# Backups
+*.tgz
+*.tar.gz
+.DS_Store

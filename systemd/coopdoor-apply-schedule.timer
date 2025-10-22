@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily schedule apply at 00:05
+
+[Timer]
+OnCalendar=*-*-* 00:05:00
+Persistent=true
+Unit=coopdoor-apply-schedule.service
+
+[Install]
+WantedBy=timers.target

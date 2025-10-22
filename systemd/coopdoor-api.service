@@ -1,0 +1,23 @@
+[Unit]
+Description=Coop Door API (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=coop
+Group=coop
+WorkingDirectory=/opt/coopdoor
+EnvironmentFile=-/etc/coopdoor/env
+ExecStart=/opt/coopdoor/.venv/bin/uvicorn coopdoor_api:app --host 127.0.0.1 --port 8080 --workers 1
+Restart=on-failure
+RestartSec=2
+
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
