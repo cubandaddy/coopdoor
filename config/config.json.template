@@ -1,0 +1,9 @@
+{
+  "mac": "00:80:E1:22:EE:F2",
+  "adapter": "hci0",
+  "connect_timeout": 15,
+  "base_pulses": 14,
+  "pulse_interval": 2.0,
+  "home_before_open": false,
+  "min_pause_after_action": 1.0
+}

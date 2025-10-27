@@ -1,0 +1,1 @@
+coop ALL=(root) NOPASSWD: /bin/systemctl start coopdoor-apply-schedule.service

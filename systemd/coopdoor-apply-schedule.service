@@ -1,7 +1,7 @@
 [Unit]
 Description=Apply Coop Door schedule (recompute timers)
-After=coopdoor-api.service
-
+After=coopdoor-api.service network-online.target
+Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/opt/coopdoor/.venv/bin/python3 /opt/coopdoor/schedule_apply.py

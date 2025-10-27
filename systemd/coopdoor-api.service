@@ -1,6 +1,6 @@
 [Unit]
 Description=Coop Door API (FastAPI)
-After=network-online.target
+After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
@@ -16,8 +16,8 @@ RestartSec=2
 NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=true
-AmbientCapabilities=
+ProtectHome=false
+ReadWritePaths=/etc/coopdoor
 
 [Install]
 WantedBy=multi-user.target

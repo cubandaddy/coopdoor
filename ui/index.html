@@ -1,20 +1,23 @@
 <!doctype html>
 <html lang="en">
 <head>
+<link rel="apple-touch-icon" sizes="180x180" href="/ui/apple-touch-icon.png?v=1761083686">  
+<link rel="apple-touch-icon" sizes="167x167" href="/ui/apple-touch-icon-167.png?v=1761083686">  
+<link rel="apple-touch-icon" sizes="152x152" href="/ui/apple-touch-icon-152.png?v=1761083686">  
+<meta name="apple-mobile-web-app-title" content="CoopDoor">
+<meta name="apple-mobile-web-app-title" content="CoopDoor">
   <meta charset="utf-8">
   <title>Coop Door</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#0b0b0c">
-  <link rel="manifest" href="./manifest.webmanifest?v=3">
-  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="manifest" href="./manifest.webmanifest?v=1761083206">
   <style>
     :root {
       --bg:#0b0b0c; --bg-elev:#121316; --card:#0f1013; --border:#22252a;
       --fg:#e6e6e6; --muted:#9aa0a6; --brand:#4e5fff; --ok:#56d364; --warn:#f4bf4f; --bad:#ff7b72;
       --radius:12px; --shadow:0 6px 24px rgba(0,0,0,.35); --speed:.18s;
     }
-    *{box-sizing:border-box}
-    html,body{height:100%}
+    *{box-sizing:border-box} html,body{height:100%}
     body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
     header{position:sticky;top:0;z-index:50;padding:14px 18px;border-bottom:1px solid var(--border);
       background:#0d0e11cc;backdrop-filter:saturate(120%) blur(8px)}
@@ -44,12 +47,31 @@
     .actions{display:grid;grid-template-columns:repeat(2, minmax(140px,1fr));gap:12px}
     .status-card{background:var(--card);border:1px dashed var(--border);padding:14px;border-radius:12px}
     .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace}
-    .dim{color:var(--muted)}
-    .cap-note{font-size:.9rem;color:var(--muted)}
-    .caps-disabled .btn[data-pct]{opacity:.6}
+    .dim{color:var(--muted)} .cap-note{font-size:.9rem;color:var(--muted)}
     footer.sticky{position:fixed;left:0;right:0;bottom:0;padding:10px;display:flex;justify-content:center;background:transparent}
     .tiny{opacity:.65;font-size:.8rem}
+    details.card summary{cursor:pointer;user-select:none}
+    details.card summary:hover{color:var(--brand)}
+    label{display:block;margin-bottom:4px;font-size:.9rem}
+    input[type="text"],input[type="password"],input[type="number"],input[type="time"],select{
+      width:100%;padding:8px 10px;background:var(--card);border:1px solid var(--border);
+      border-radius:8px;color:var(--fg);font-size:.9rem;margin-top:4px}
+    input[type="text"]:focus,input[type="password"]:focus,input[type="number"]:focus,input[type="time"]:focus,select:focus{
+      outline:none;border-color:var(--brand)}
   </style>
+  <script defer src="./hardening.js"></script>
+
+  <script>
+  /* API BOOT SHIM */
+  (function(){
+    try {
+      var b = (localStorage.getItem('apiBase') || '').trim();
+      if (!b || !/^https?:\/\//i.test(b)) {
+        localStorage.setItem('apiBase', window.location.origin);
+      }
+    } catch (e) {}
+  })();
+  </script>
 
 </head>
 <body>
@@ -64,8 +86,8 @@
 <main>
   <nav class="tabs">
     <a href="#control" id="tab-control" class="active">Control / Status</a>
-    <a href="#config" id="tab-config">Config</a>
-    <a href="#diag" id="tab-diag">Diagnostics</a>
+    <a href="#config"  id="tab-config">Config</a>
+    <a href="#diag"    id="tab-diag">Diagnostics</a>
   </nav>
 
   <section id="page-control" class="card">
@@ -76,23 +98,23 @@
       <button class="btn primary" data-pct="50" onclick="openTo(50)">Open 50%</button>
       <button class="btn primary" data-pct="75" onclick="openTo(75)">Open 75%</button>
       <button class="btn primary" data-pct="100" onclick="openTo(100)">Open 100%</button>
-      <button id="btnClose" class="btn neutral" onclick="closeDoor()">Close</button>
-      <button id="btnStatus" class="btn ghost" onclick="getStatus()">Status</button>
+      <button id="btnClose"  class="btn neutral" onclick="closeDoor()">Close</button>
+      <button id="btnStatus" class="btn ghost"   onclick="getStatus()">Status</button>
     </div>
 
     <div class="status-card" style="margin-top:14px">
       <div class="kv">
-        <div class="dim">Door</div><div id="sConnected">Unknown</div>
-        <div class="dim">Last Action</div><div id="sLast">No actions yet</div>
-        <div class="dim">Schedule</div><div id="sSched">—</div>
-        <div class="dim">Open</div><div id="sOpen">--:--</div>
-        <div class="dim">Close</div><div id="sClose">--:--</div>
+        <div class="dim">Door</div>       <div id="sConnected">Unknown</div>
+        <div class="dim">Last Action</div> <div id="sLast">No actions yet</div>
+        <div class="dim">Mode</div>        <div id="sSched">--</div>
+        <div class="dim">Open</div>        <div id="sOpen">--:--</div>
+        <div class="dim">Close</div>       <div id="sClose">--:--</div>
       </div>
     </div>
   </section>
 
   <section id="page-config" class="card" style="display:none">
-    <h2 class="title">Config</h2>
+    <h2 class="title">Automation Schedule</h2>
     <div class="row" style="margin-bottom:6px">
       <label><input type="radio" name="mode" value="fixed" checked> Fixed</label>
       <label><input type="radio" name="mode" value="solar"> Sunrise / Sunset</label>
@@ -101,7 +123,6 @@
     <div id="fixedBlock" class="grid2">
       <div><label>Open time <input id="fixOpen" type="time" value="07:00"></label></div>
       <div><label>Close time <input id="fixClose" type="time" value="20:30"></label></div>
-      <div class="subtitle">Times use the Pi's timezone. Optional TZ override below.</div>
     </div>
 
     <div id="solarBlock" class="grid2" style="display:none">
@@ -109,30 +130,86 @@
       <div><label>Country (ISO-2) <input id="countryInput" type="text" value="US"></label></div>
       <div><label>Sunrise offset (min) <input id="sr" type="number" step="1" value="0"></label></div>
       <div><label>Sunset offset (min) <input id="ss" type="number" step="1" value="0"></label></div>
-      <div class="subtitle">ZIP is preferred. The server geocodes ZIP to lat/lon offline on save.</div>
+      <div class="subtitle" style="grid-column:1/-1">ZIP is preferred. Server geocodes ZIP offline on save.</div>
     </div>
 
-    <div class="grid2">
+    <div class="grid2" style="margin-top:10px">
       <div><label>Timezone (optional) <input id="tzInput" type="text" placeholder="America/New_York"></label></div>
       <div><label>Enforced open percent (0=uncapped) <input id="openPct" type="number" min="0" max="100" step="1" value="100"></label></div>
     </div>
 
-    <div class="row" style="margin-top:8px">
-      <button id="btnLoad" class="btn ghost" onclick="loadAuto()">Load</button>
-      <button id="btnSave" class="btn primary" onclick="saveAuto()">Save</button>
+    <div class="row" style="margin-top:12px">
+      <button id="btnLoad"  class="btn ghost"   onclick="loadConfig()">Load</button>
+      <button id="btnSave"  class="btn primary" onclick="saveConfig()">Save</button>
       <button id="btnApply" class="btn neutral" onclick="applyAuto()">Apply Now</button>
     </div>
 
     <div id="autoOut" class="status-card" style="margin-top:10px">Use Load/Save/Apply.</div>
 
-    <div class="card" style="margin-top:12px">
-      <h3 class="title">Settings</h3>
+    <details class="card" style="margin-top:12px">
+      <summary class="title">Backup & Restore Config</summary>
+      <div class="subtitle" style="margin-bottom:12px">Backups are saved to a persistent location that survives uninstall</div>
+      
+      <div class="grid2" style="margin-bottom:12px">
+        <div>
+          <label>Backup Name <input id="backupName" type="text" placeholder="my-config-backup"></label>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="btn primary" onclick="backupConfig()" style="width:100%">Create Backup</button>
+        </div>
+      </div>
+
+      <div id="backupList" class="status-card" style="margin-bottom:12px">
+        Loading backups...
+      </div>
+
+      <div id="backupOut" class="status-card">Backup operations will appear here.</div>
+    </details>
+
+    <details class="card" style="margin-top:12px">
+      <summary class="title">Advanced Settings</summary>
+      
+      <h3 style="font-size:.95rem;margin:16px 0 8px;color:var(--muted)">BLE Connection</h3>
       <div class="grid2">
-        <div><label>Base URL <input id="baseUrl" type="text" placeholder="https://&lt;host&gt;.&lt;tailnet&gt;.ts.net"></label></div>
-        <div><label>Bearer token (optional) <input id="bearer" type="password" placeholder="leave blank with Tailscale identity"></label></div>
+        <div><label>Adapter <input id="bleAdapter" type="text" value="hci0"></label></div>
+        <div><label>MAC Address <input id="bleMac" type="text" placeholder="00:80:E1:22:EE:F2"></label></div>
+        <div><label>Connect Timeout (s) <input id="connectTimeout" type="number" min="5" max="30" value="14"></label></div>
+        <div><label>Min Pause After Action (s) <input id="minPause" type="number" min="0" max="10" step="0.5" value="2"></label></div>
+      </div>
+
+      <h3 style="font-size:.95rem;margin:16px 0 8px;color:var(--muted)">BLE Retry Logic</h3>
+      <div class="grid2">
+        <div><label>Retry Attempts <input id="retryAttempts" type="number" min="0" max="10" value="2"></label></div>
+        <div><label>Initial Delay (ms) <input id="retryDelay" type="number" min="100" max="2000" step="100" value="400"></label></div>
+      </div>
+
+      <h3 style="font-size:.95rem;margin:16px 0 8px;color:var(--muted)">Diagnostics Display</h3>
+      <div class="grid2">
+        <div>
+          <label>Font Family
+            <select id="diagFontFamily">
+              <option value="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace">Monospace (Default)</option>
+              <option value="system-ui, -apple-system, sans-serif">System Sans</option>
+              <option value="'Courier New', Courier, monospace">Courier</option>
+              <option value="Georgia, serif">Serif</option>
+            </select>
+          </label>
+        </div>
+        <div><label>Font Size (px) <input id="diagFontSize" type="number" min="10" max="20" value="13"></label></div>
+        <div><label>Line Height <input id="diagLineHeight" type="number" min="1" max="2.5" step="0.1" value="1.5"></label></div>
+      </div>
+      
+      <div class="subtitle" style="margin-top:12px">⚠️ Changes to BLE settings require API restart to take effect.</div>
+    </details>
+
+    <div class="card" style="margin-top:12px">
+      <h3 class="title">API Connection</h3>
+      <div class="grid2">
+        <div><label>Base URL <input id="baseUrl" type="text" placeholder="https://host.tailnet.ts.net"></label></div>
+        <div><label>Bearer Token (optional) <input id="bearer" type="password" placeholder="leave blank with Tailscale"></label></div>
       </div>
       <div class="row" style="margin-top:8px">
-        <button class="btn neutral" onclick="saveSettings()">Save Settings</button>
+        <button class="btn neutral" onclick="saveSettings()">Save Connection Settings</button>
         <span class="subtitle">Saved in your browser only.</span>
       </div>
     </div>
@@ -151,39 +228,15 @@
 <footer class="sticky"><div class="tiny" id="hostLabel"></div></footer>
 
 <script>
-  // Settings storage
-  const S = {
-    get base(){ return localStorage.getItem('coop.base') || window.location.origin; },
-    set base(v){ localStorage.setItem('coop.base', v); },
-    get token(){ return localStorage.getItem('coop.bearer') || ''; },
-    set token(v){ localStorage.setItem('coop.bearer', v); },
-    get last(){ try{return JSON.parse(localStorage.getItem('coop.lastEvent')||'null')}catch(_){return null} },
-    set last(o){ try{ localStorage.setItem('coop.lastEvent', JSON.stringify(o||null)); }catch(_){ } }
-  };
-  hostLabel.textContent = (new URL(S.base)).host;
-
-  function saveSettings(){
-    const b=baseUrl.value.trim();
-    const t=bearer.value.trim();
-    if(b) S.base=b;
-    S.token=t;
-    alert('Settings saved');
-  }
-
-  function headers(){
-    const h={'Content-Type':'application/json'};
-    const t=S.token;
-    if (t) h['Authorization']='Bearer '+t;
-    return h;
-  }
-
-  async function api(path, opts={}){
-    const url=(localStorage.getItem('apiBase')||'')+path;
-    const res=await fetch(url,{method:opts.method||'GET',headers:headers(),body:opts.body?JSON.stringify(opts.body):undefined,cache:'no-store'});
-    const txt=await res.text(); let j={}; try{ j=txt?JSON.parse(txt):{} }catch(_){}
-    if(!res.ok) throw new Error(j.detail||('HTTP '+res.status));
-    return j;
-  }
+  // #reset support: clear app storage and hard-refresh
+  (function(){
+    if (location.hash === '#reset') {
+      try {
+        ['apiBase','apiToken','coop.base','coop.bearer','coop.lastEvent'].forEach(k=>localStorage.removeItem(k));
+      } catch(e) {}
+      location.replace('/ui/?v=' + Date.now());
+    }
+  })();
 
   // Tabs
   function showPage(id){
@@ -192,149 +245,420 @@
     document.getElementById('tab-'+id).classList.add('active');
     document.getElementById('page-'+id).style.display='';
     if(id==='control'){ getStatus(); refreshSchedule(); }
-    if(id==='config'){ loadAuto(); }
+    if(id==='config'){ loadConfig(); listBackups(); }
+    if(id==='diag'){ applyDiagStyles(); }
   }
   window.addEventListener('hashchange',()=>{ const h=(location.hash||'#control').slice(1); showPage(h); });
   showPage((location.hash||'#control').slice(1));
 
-  // Status helpers
-  function renderStatusBlock(opts){
-    const connected = !!opts.connected;
-    const evt = opts.last_event || {};
-    const verb = evt.cmd ? (evt.cmd[0].toUpperCase()+evt.cmd.slice(1)) : 'n/a';
-    const pct = (typeof evt.effective_percent==='number') ? ` ${evt.effective_percent}%` : '';
-    const resStr = (evt.ok===true)?'Succeeded':(evt.ok===false)?'Failed':'Unknown';
-    const latest = evt.cmd ? `Latest Action: ${verb}${pct} ${resStr}` : 'Latest Action: n/a';
-    const sch = opts.schedule || {mode:'Unknown', openTime:'--:--', closeTime:'--:--'};
-    const schedLines = `Schedule: ${sch.mode}`;
+  // Settings storage
+  const S = {
+    get base(){ return (localStorage.getItem('apiBase') || '').trim(); },
+    set base(v){ localStorage.setItem('apiBase', v); },
+    get token(){ return (localStorage.getItem('apiToken') || '').trim(); },
+    set token(v){ localStorage.setItem('apiToken', v); },
+    get last(){ try{return JSON.parse(localStorage.getItem('coop.lastEvent')||'null')}catch(_){return null} },
+    set last(o){ try{ localStorage.setItem('coop.lastEvent', JSON.stringify(o||null)); }catch(_){ } }
+  };
+  hostLabel.textContent = (S.base || window.location.origin);
+
+  function saveSettings(){ 
+    const b=baseUrl.value.trim(); 
+    const t=bearer.value.trim(); 
+    if(b) S.base=b; 
+    S.token=t; 
+    hostLabel.textContent = b || window.location.origin;
+    alert('Connection settings saved'); 
+  }
+
+  function headers(){ const h={'Content-Type':'application/json'}; if(S.token) h['Authorization']='Bearer '+S.token; return h; }
+
+  // Ping loop to set API badge
+  (function(){
+    async function ping(){
+      const url = (S.base || '') + '/healthz';
+      try {
+        const res = await fetch(url, {cache:'no-store'});
+        const ok = res && res.ok;
+        const badge = document.getElementById('apiBadge');
+        badge.textContent = ok ? 'api: up' : 'api: down';
+        badge.classList.toggle('ok',  !!ok);
+        badge.classList.toggle('bad', !ok);
+      } catch (e) {
+        const badge = document.getElementById('apiBadge');
+        badge.textContent = 'api: down';
+        badge.classList.remove('ok'); badge.classList.add('bad');
+      }
+    }
+    ping(); setInterval(ping, 30000);
+  })();
+
+  // Fetch with timeout + single retry
+  async function fetchWithHedge(url, opts={}, timeoutMs=20000){
+    const doOnce = () => new Promise((resolve,reject)=>{
+      const ctrl = new AbortController();
+      const t = setTimeout(()=>ctrl.abort(), timeoutMs);
+      fetch(url, {...opts, signal: ctrl.signal}).then(r=>{clearTimeout(t); resolve(r)}).catch(e=>{clearTimeout(t); reject(e)});
+    });
+    try { return await doOnce(); } catch(_){ return await doOnce(); }
+  }
+
+  async function api(path, opts={}){
+    const url = (S.base || '') + path;
+    const res = await fetchWithHedge(url, {
+      method: opts.method || 'GET',
+      headers: headers(),
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      cache: 'no-store'
+    }, opts.timeoutMs || 20000);
+    const text = await res.text();
+    let json = {};
+    if (text) { try { json = JSON.parse(text); } catch(_) {} }
+    if (!res.ok) { const msg = (json && (json.detail || json.stderr)) || ('HTTP '+res.status); throw new Error(msg); }
+    return json;
+  }
+
+  function fmt(dtISO){
+    if(!dtISO) return {time:'--:--:--', date:'--/--/--'};
+    const d=new Date(dtISO);
+    return {time:d.toLocaleTimeString([], {hour12:false}), date:d.toLocaleDateString()};
+  }
+
+  function renderStatus(e){
+    const connected = !!(e && (e.connected || (e.status && e.status.connected)));
     sConnected.textContent = connected ? 'True' : 'False';
-    sLast.textContent = latest;
-    sSched.textContent = schedLines;
-    sOpen.textContent = sch.openTime || '--:--';
-    sClose.textContent = sch.closeTime || '--:--';
+    sConnected.className = connected ? 'ok' : 'bad';
+
+    const le = (e && e.last_event) || S.last;
+    if (le && le.cmd) {
+      const when = fmt(le.at);
+      const verb = le.cmd.charAt(0).toUpperCase() + le.cmd.slice(1);
+      const pct = (le.cmd === 'open' && typeof le.effective_percent === 'number') ? (' ' + le.effective_percent + '%') : '';
+      const res = le.ok ? 'Succeeded' : 'Failed';
+      const resClass = le.ok ? 'ok' : 'bad';
+      sLast.innerHTML = `${verb}${pct} <span class="${resClass}">${res}</span> at ${when.time} on ${when.date}`;
+    } else {
+      sLast.textContent = 'n/a';
+    }
+  }
+
+  async function getStatus(){
+    try {
+      const j = await api('/status');
+      if (j.last_event) S.last = j.last_event;
+      renderStatus(j);
+    } catch(e){
+      renderStatus({connected:false, last_event:S.last});
+    }
   }
 
   async function refreshSchedule(){
     try{
       const j = await api('/schedule/preview');
-      capVal.textContent = (j.open_percent_cap>0)? `${j.open_percent_cap}%`:'none';
-      renderStatusBlock({connected: (window.__lastConnected ?? false), last_event: window.__lastEvent || null,
-        schedule:{mode: (j.mode||'fixed'), openTime:j.open_time, closeTime:j.close_time}});
+      sSched.textContent = (j.mode || 'Unknown');
+      sOpen.textContent  = j.open_time || '--:--';
+      sClose.textContent = j.close_time || '--:--';
+      capVal.textContent = (j.open_percent_cap > 0) ? (j.open_percent_cap + '%') : 'none';
     }catch(_){
-      capVal.textContent = 'unknown';
+      sSched.textContent = 'Unknown'; sOpen.textContent='--:--'; sClose.textContent='--:--';
     }
   }
 
-  function setBusy(on){
-    document.querySelectorAll('.btn').forEach(b=>b.classList.toggle('loading', on));
+  // Optimistic UI update
+  function showOptimisticState(cmd, pct){
+    const optimistic = {
+      cmd: cmd,
+      effective_percent: pct,
+      ok: null,
+      at: new Date().toISOString()
+    };
+    S.last = optimistic;
+    const verb = cmd.charAt(0).toUpperCase() + cmd.slice(1);
+    const pctStr = (cmd === 'open' && pct) ? (' ' + pct + '%') : '';
+    sLast.innerHTML = `${verb}${pctStr} <span class="warn">pending...</span> at ${fmt(optimistic.at).time}`;
   }
 
-  async function getStatus(){
-    setBusy(true);
-    try{
-      const j = await api('/status');
-      window.__lastConnected = !!j.connected;
-      window.__lastEvent = j.last_event || window.__lastEvent || null;
-      const badge = document.getElementById('apiBadge');
-      if (badge) { badge.textContent = 'api: up'; badge.classList.remove('bad'); badge.classList.add('ok'); }
-      renderStatusBlock({connected:j.connected, last_event: j.last_event||null, schedule:null});
-    }catch(e){
-      const badge = document.getElementById('apiBadge');
-      if (badge) { badge.textContent = 'api: down'; badge.classList.remove('ok'); badge.classList.add('bad'); }
-    }finally{
-      setBusy(false);
-      refreshSchedule();
+  function setLoading(el, on){ el.classList.toggle('loading', !!on); el.disabled = !!on; }
+
+  async function openTo(pct){
+    const btn = document.querySelector('.btn.primary[data-pct="'+pct+'"]');
+    setLoading(btn, true);
+    showOptimisticState('open', pct);
+    
+    try {
+      const result = await api('/open?percent=' + encodeURIComponent(pct), {method:'POST', timeoutMs:30000});
+      if (result.last_event) {
+        S.last = result.last_event;
+        renderStatus({connected:true, last_event:result.last_event});
+      }
+    } catch(e) {
+      console.error('Open command error:', e);
+      sLast.innerHTML += ' <span class="warn">(error: ' + e.message + ')</span>';
     }
-  }
-
-  async function openTo(p){
-    setBusy(true);
-    try{
-      const j = await api('/open?percent='+encodeURIComponent(p), {method:'POST'});
-      window.__lastEvent = j.last_event || null;
-      getStatus();
-    }catch(e){
-      alert('Open failed: '+e.message);
-      getStatus();
-    }finally{ setBusy(false); }
+    
+    setLoading(btn, false);
+    setTimeout(getStatus, 2000);
   }
 
   async function closeDoor(){
-    setBusy(true);
-    try{
-      const j = await api('/close', {method:'POST'});
-      window.__lastEvent = j.last_event || null;
-      getStatus();
-    }catch(e){
-      alert('Close failed: '+e.message);
-      getStatus();
-    }finally{ setBusy(false); }
-  }
-
-  async function loadAuto(){
-    setBusy(true);
-    try{
-      const j = await api('/automation');
-      document.querySelector(`input[name="mode"][value="${j.mode||'fixed'}"]`).checked = true;
-      document.getElementById('fixedBlock').style.display = (j.mode==='fixed')?'':'none';
-      document.getElementById('solarBlock').style.display = (j.mode==='solar')?'':'none';
-      if(j.fixed){ fixOpen.value=j.fixed.open||'07:00'; fixClose.value=j.fixed.close||'20:30'; }
-      if(j.solar){ sr.value=j.solar.sunrise_offset_min||0; ss.value=j.solar.sunset_offset_min||0; }
-      if(j.location){ zip.value=''; }
-      if(j.timezone){ tzInput.value=j.timezone; }
-      openPct.value = j.open_percent ?? 100;
-      autoOut.textContent = 'Loaded current config.';
-      refreshSchedule();
-    }catch(e){
-      autoOut.textContent = 'Load failed: '+e.message;
-    }finally{ setBusy(false); }
-  }
-
-  async function saveAuto(){
-    setBusy(true);
-    try{
-      const mode = document.querySelector('input[name="mode"]:checked')?.value || 'fixed';
-      const payload = { mode, open_percent: parseInt(openPct.value||'100',10), timezone: tzInput.value||undefined };
-      if (mode==='fixed'){
-        payload.fixed = { open: fixOpen.value, close: fixClose.value };
-      } else {
-        payload.country = (countryInput.value||'US').trim();
-        payload.zip = (zip.value||'').trim() || undefined;
-        payload.solar = { sunrise_offset_min: parseInt(sr.value||'0',10), sunset_offset_min: parseInt(ss.value||'0',10) };
+    const btn = document.getElementById('btnClose');
+    setLoading(btn, true);
+    showOptimisticState('close', 0);
+    
+    try {
+      const result = await api('/close', {method:'POST', timeoutMs:30000});
+      if (result.last_event) {
+        S.last = result.last_event;
+        renderStatus({connected:true, last_event:result.last_event});
       }
-      const j = await api('/automation', {method:'PUT', body:payload});
-      autoOut.textContent = 'Saved.';
-      refreshSchedule();
-    }catch(e){
-      autoOut.textContent = 'Save failed: '+e.message;
-    }finally{ setBusy(false); }
+    } catch(e) {
+      console.error('Close command error:', e);
+      sLast.innerHTML += ' <span class="warn">(error: ' + e.message + ')</span>';
+    }
+    
+    setLoading(btn, false);
+    setTimeout(getStatus, 2000);
+  }
+
+  // Config I/O - now uses unified /config endpoint
+  let currentConfig = {};
+  
+  async function loadConfig(){
+    try{
+      const cfg = await api('/config');
+      currentConfig = cfg;
+      
+      const auto = cfg.automation || {};
+      const ble = cfg.ble || {};
+      const ui = cfg.ui || {};
+      
+      // Automation
+      (auto.mode==='solar' ? solarBlock : fixedBlock).style.display = '';
+      (auto.mode==='solar' ? fixedBlock : solarBlock).style.display = 'none';
+      document.querySelectorAll('input[name="mode"]').forEach(r=>r.checked = (r.value===auto.mode));
+      
+      if (auto.fixed){ 
+        fixOpen.value = auto.fixed.open; 
+        fixClose.value = auto.fixed.close; 
+      }
+      if (auto.solar){ 
+        sr.value = auto.solar.sunrise_offset_min||0; 
+        ss.value = auto.solar.sunset_offset_min||0; 
+      }
+      if (auto.location){ 
+        // Restore ZIP code if it was saved
+        zip.value = auto.location.zip || '';
+        countryInput.value = auto.location.country || 'US';
+      }
+      if (auto.timezone) tzInput.value = auto.timezone;
+      openPct.value = auto.open_percent ?? 100;
+      
+      // BLE
+      bleAdapter.value = ble.adapter || 'hci0';
+      bleMac.value = ble.mac || '';
+      connectTimeout.value = ble.connect_timeout || 14;
+      minPause.value = ble.min_pause_after_action || 2;
+      retryAttempts.value = ble.retry_attempts || 2;
+      retryDelay.value = ble.retry_initial_delay_ms || 400;
+      
+      // UI
+      diagFontFamily.value = ui.diag_font_family || 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace';
+      diagFontSize.value = parseInt(ui.diag_font_size) || 13;
+      diagLineHeight.value = parseFloat(ui.diag_line_height) || 1.5;
+      
+      applyDiagStyles();
+      
+      document.getElementById('autoOut').textContent = 'Config loaded successfully.';
+      await refreshSchedule();
+    }catch(e){ 
+      document.getElementById('autoOut').textContent = 'Load failed: ' + e.message; 
+    }
+  }
+
+  async function saveConfig(){
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    
+    const payload = {
+      automation: {
+        mode: mode,
+        open_percent: parseInt(openPct.value,10) || 0,
+        timezone: tzInput.value.trim() || ""
+      },
+      ble: {
+        adapter: bleAdapter.value.trim(),
+        mac: bleMac.value.trim(),
+        connect_timeout: parseInt(connectTimeout.value,10) || 14,
+        min_pause_after_action: parseFloat(minPause.value) || 2,
+        retry_attempts: parseInt(retryAttempts.value,10) || 2,
+        retry_initial_delay_ms: parseInt(retryDelay.value,10) || 400
+      },
+      ui: {
+        diag_font_family: diagFontFamily.value,
+        diag_font_size: diagFontSize.value + 'px',
+        diag_line_height: diagLineHeight.value
+      }
+    };
+    
+    if (mode==='fixed'){
+      payload.automation.fixed = { 
+        open: fixOpen.value, 
+        close: fixClose.value 
+      };
+    } else {
+      const country = (countryInput.value||'US').trim().toUpperCase();
+      const zipVal = (zip.value||'').trim();
+      if (zipVal) {
+        payload.automation.zip = zipVal;
+        payload.automation.country = country;
+      }
+      payload.automation.solar = { 
+        sunrise_offset_min: parseInt(sr.value||'0',10), 
+        sunset_offset_min: parseInt(ss.value||'0',10) 
+      };
+    }
+    
+    try{
+      const j = await api('/config', {method:'PUT', body: payload});
+      currentConfig = j.saved || currentConfig;
+      document.getElementById('autoOut').textContent = 'Config saved successfully.';
+      applyDiagStyles();
+      await refreshSchedule();
+    }catch(e){ 
+      document.getElementById('autoOut').textContent = 'Save failed: ' + e.message; 
+    }
   }
 
   async function applyAuto(){
-    setBusy(true);
     try{
-      const j = await api('/automation/apply', {method:'POST'});
-      autoOut.textContent = 'Apply started.';
-    }catch(e){
-      autoOut.textContent = 'Apply failed: '+e.message;
-    }finally{ setBusy(false); }
+      await api('/automation/apply', {method:'POST'});
+      document.getElementById('autoOut').textContent = 'Apply triggered - timers will update.';
+    }catch(e){ 
+      document.getElementById('autoOut').textContent = 'Apply failed: ' + e.message; 
+    }
   }
 
-  // ping banner
-  (function(){
-    const badge = document.getElementById('apiBadge');
-    async function ping(){
-      try{
-        const res = await fetch((localStorage.getItem('apiBase')||'')+'/healthz', {cache:'no-store'});
-        if (res.ok){ badge.textContent='api: up'; badge.classList.remove('bad'); badge.classList.add('ok'); }
-        else { badge.textContent='api: warn'; badge.classList.remove('ok'); badge.classList.add('warn'); }
-      }catch(_){
-        badge.textContent='api: down'; badge.classList.remove('ok','warn'); badge.classList.add('bad');
-      }
+  // Apply diag font styles from config
+  function applyDiagStyles(){
+    const diagEl = document.getElementById('diag');
+    if (!diagEl) return;
+    
+    const ui = currentConfig.ui || {};
+    diagEl.style.fontFamily = ui.diag_font_family || 'ui-monospace, monospace';
+    diagEl.style.fontSize = ui.diag_font_size || '13px';
+    diagEl.style.lineHeight = ui.diag_line_height || '1.5';
+  }
+
+  // Mode toggle wiring
+  document.querySelectorAll('input[name="mode"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      const mode = document.querySelector('input[name="mode"]:checked').value;
+      solarBlock.style.display = (mode==='solar' ? '' : 'none');
+      fixedBlock.style.display = (mode==='solar' ? 'none' : '');
+    });
+  });
+
+  // Backup & Restore Functions
+  async function backupConfig(){
+    const name = document.getElementById('backupName').value.trim() || 'unnamed-backup';
+    try {
+      const j = await api('/config/backup', {method:'POST', body: { name: name }});
+      document.getElementById('backupOut').textContent = 'Backup created: ' + j.name;
+      await listBackups();
+    } catch(e) {
+      document.getElementById('backupOut').textContent = 'Backup failed: ' + e.message;
     }
-    ping();
-    setInterval(ping, 30000);
-  })();
+  }
+
+  async function restoreConfig(name){
+    if (!confirm('Restore config from backup "' + name + '"? This will overwrite current settings.')) return;
+    try {
+      await api('/config/restore', {method:'POST', body: { name: name }});
+      document.getElementById('backupOut').textContent = 'Config restored from: ' + name;
+      await loadConfig();
+    } catch(e) {
+      document.getElementById('backupOut').textContent = 'Restore failed: ' + e.message;
+    }
+  }
+
+  async function deleteBackup(name){
+    if (!confirm('Delete backup "' + name + '"? This cannot be undone.')) return;
+    try {
+      await api('/config/backup', {method:'DELETE', body: { name: name }});
+      document.getElementById('backupOut').textContent = 'Deleted backup: ' + name;
+      await listBackups();
+    } catch(e) {
+      document.getElementById('backupOut').textContent = 'Delete failed: ' + e.message;
+    }
+  }
+
+  async function listBackups(){
+    try {
+      const j = await api('/config/backups');
+      const list = j.backups || [];
+      if (list.length === 0) {
+        document.getElementById('backupList').textContent = 'No backups found.';
+        return;
+      }
+      const html = list.map(b => {
+        const date = new Date(b.timestamp * 1000).toLocaleString();
+        return `
+          <div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <div style="flex:1">
+              <strong>${b.name}</strong>
+              <div style="font-size:.85em;color:var(--muted)">${date}</div>
+            </div>
+            <button class="btn ghost" style="padding:6px 12px" onclick="restoreConfig('${b.name}')">Restore</button>
+            <button class="btn ghost" style="padding:6px 12px" onclick="deleteBackup('${b.name}')">Delete</button>
+          </div>
+        `;
+      }).join('');
+      document.getElementById('backupList').innerHTML = html;
+    } catch(e) {
+      document.getElementById('backupList').textContent = 'Failed to list backups: ' + e.message;
+    }
+  }
+
+  // Diagnostics
+  async function getDiag(){
+    const box = document.getElementById('diag');
+    try {
+      const res = await fetch((S.base || '') + '/diag', { 
+        headers: headers(),
+        cache:'no-store' 
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        box.textContent = 'Error ' + res.status + '\n' + (text || '(no body)');
+        return;
+      }
+      try {
+        const j = JSON.parse(text||'{}');
+        const lines = [];
+        lines.push('connected: ' + (j.connected === true ? 'true' : (j.connected === false ? 'false' : 'unknown')));
+        if (j.config)  lines.push('config: ' + JSON.stringify(j.config));
+        if (j.status)  lines.push('status: ' + JSON.stringify(j.status));
+        if (j.logs && Array.isArray(j.logs)) {
+          lines.push('');
+          lines.push('== TAIL LOG ==');
+          j.logs.forEach(e => lines.push(`[${e.ts}] ${e.msg}`));
+        }
+        box.textContent = lines.join('\n');
+      } catch(parseErr) {
+        box.textContent = 'Non-JSON response from /diag:\n' + text;
+      }
+    } catch (e) {
+      box.textContent = 'Fetch failed: ' + (e && e.message || e);
+    }
+  }
+
+  // Initial fetches
+  getStatus(); 
+  refreshSchedule();
+  
+  // Load settings into connection fields
+  if (S.base) baseUrl.value = S.base;
+  if (S.token) bearer.value = S.token;
 </script>
+<script defer src="./hardening.js"></script>
 </body>
 </html>
