@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import ast, json, os, re, subprocess, shutil, time
-from datetime import date, timedelta
+import ast, json, os, re, time
+from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, HTTPException, Request
@@ -13,20 +13,27 @@ from astral.sun import sun
 import pgeocode
 import zoneinfo
 
+# Import shared modules (DRY)
+from shared_config import (
+    CONF_DIR, AUTOMATION_PATH, DEVICE_CONFIG_PATH, UI_CONFIG_PATH,
+    BACKUP_DIR, SYSTEMD_DIR, system_timezone, run_command
+)
+from door_state import (
+    percent_to_pulses, save_last_action, get_last_action,
+    get_door_state, update_door_position, reset_door_position
+)
+
 TOKEN = os.getenv("COOPDOOR_TOKEN", "").strip()
 CLI = "coop-door"
-CONF_DIR = Path("/etc/coopdoor"); CONF_DIR.mkdir(parents=True, exist_ok=True)
-AUTOMATION_PATH = CONF_DIR / "automation.json"
 
-# Persistent backup directory that survives uninstall
-BACKUP_DIR = Path("/var/lib/coopdoor-backups")
+# Ensure directories exist
+CONF_DIR.mkdir(parents=True, exist_ok=True)
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
-SYSTEMD = Path("/etc/systemd/system")
-OPEN_SVC  = SYSTEMD / "coopdoor-open.service"
-CLOSE_SVC = SYSTEMD / "coopdoor-close.service"
-APPLY_SVC = SYSTEMD / "coopdoor-apply-schedule.service"
-APPLY_TIMER = SYSTEMD / "coopdoor-apply-schedule.timer"
+OPEN_SVC  = SYSTEMD_DIR / "coopdoor-open.service"
+CLOSE_SVC = SYSTEMD_DIR / "coopdoor-close.service"
+APPLY_SVC = SYSTEMD_DIR / "coopdoor-apply-schedule.service"
+APPLY_TIMER = SYSTEMD_DIR / "coopdoor-apply-schedule.timer"
 
 app = FastAPI(title="Coop Door API")
 app.mount("/ui", StaticFiles(directory="/opt/coopdoor/ui", html=True), name="ui")
@@ -40,10 +47,6 @@ def _require_auth_if_configured(request: Request) -> None:
     auth = request.headers.get("authorization","")
     if not auth.startswith("Bearer "): raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     if auth.removeprefix("Bearer ").strip() != TOKEN: raise HTTPException(status_code=403, detail="Forbidden")
-
-def _run(args: list[str], timeout: float = 45.0) -> tuple[int, str, str]:
-    p = subprocess.run(args, check=False, capture_output=True, text=True, timeout=timeout)
-    return p.returncode, p.stdout.strip(), p.stderr.strip()
 
 def _status_dict_from_literal(text: str) -> dict[str, Any]:
     try:
@@ -74,13 +77,6 @@ def _parse_diag(output: str) -> dict[str, Any]:
         elif ln: logs.append({"ts": "", "msg": ln})
     return {"connected": connected, "config": config, "status": status, "logs": logs[-100:]}
 
-def _system_timezone() -> str:
-    tzf = Path("/etc/timezone")
-    if tzf.exists():
-        try: return tzf.read_text().strip()
-        except Exception: pass
-    return "UTC"
-
 def _geocode_zip(zip_code: str, country: str = "US") -> tuple[float, float]:
     nomi = pgeocode.Nominatim(country.upper())
     rec = nomi.query_postal_code(str(zip_code))
@@ -92,7 +88,7 @@ def _geocode_zip(zip_code: str, country: str = "US") -> tuple[float, float]:
 
 def _load_cfg() -> dict[str, Any]:
     if not AUTOMATION_PATH.exists():
-        return {"mode":"fixed","fixed":{"open":"07:00","close":"20:30"},"timezone":_system_timezone(),"open_percent":100}
+        return {"mode":"fixed","fixed":{"open":"07:00","close":"20:30"},"timezone":system_timezone(),"open_percent":100}
     try: obj = json.loads(AUTOMATION_PATH.read_text())
     except Exception: obj = {}
     if "open_percent" not in obj: obj["open_percent"] = 100
@@ -112,7 +108,7 @@ def _effective_open_percent(requested: int | None) -> tuple[int, int]:
     return eff, eff
 
 def _compute_today_times(cfg: dict[str, Any]) -> tuple[str, str, str]:
-    tz = (cfg.get("timezone") or _system_timezone()) or "UTC"
+    tz = (cfg.get("timezone") or system_timezone()) or "UTC"
     tzinfo = zoneinfo.ZoneInfo(tz)
     if cfg.get("mode") == "solar":
         loc = cfg.get("location")
@@ -131,43 +127,121 @@ def healthz() -> str: return "ok"
 @app.get("/status")
 def status_(request: Request) -> JSONResponse:
     _require_auth_if_configured(request)
-    rc, out, err = _run([CLI,"status"], timeout=15.0)
-    if rc != 0: return JSONResponse({"ok":False,"rc":rc,"stderr":err,"stdout":out}, status_code=502)
-    data = _status_dict_from_literal(out); data["ok"]=True; return JSONResponse(data)
+    rc, out, err = run_command([CLI,"status"], timeout=15.0)
+    if rc != 0:
+        return JSONResponse({
+            "ok": False,
+            "rc": rc,
+            "stderr": err,
+            "stdout": out,
+            "door_state": get_door_state(),
+            "last_action": get_last_action()
+        }, status_code=502)
+    data = _status_dict_from_literal(out)
+    data["ok"] = True
+    data["door_state"] = get_door_state()
+    data["last_action"] = get_last_action()
+    return JSONResponse(data)
 
 @app.get("/diag")
 def diag_(request: Request) -> JSONResponse:
     _require_auth_if_configured(request)
-    rc, out, err = _run([CLI,"diag"], timeout=45.0)
+    rc, out, err = run_command([CLI,"diag"], timeout=45.0)
     if rc != 0: raise HTTPException(status_code=500, detail=f"diag failed: {err or out}")
     return JSONResponse(_parse_diag(out))
 
 @app.post("/open")
 def open_(request: Request, percent: int | None = None) -> JSONResponse:
     _require_auth_if_configured(request)
+    
     eff, cap = _effective_open_percent(percent)
-    rc, out, err = _run([CLI,"open",str(eff)])
+    
+    # Get current state for delta tracking
+    current_state = get_door_state()
+    base_pulses = 14  # Could load from config if needed
+    new_pulses = percent_to_pulses(eff, base_pulses)
+    
+    rc, out, err = run_command([CLI,"open",str(eff)])
     success = (rc == 0)
+    
     last_event = {
         "cmd": "open",
+        "requested_percent": eff,
+        "actual_pulses": new_pulses if success else 0,
+        "delta_pulses": new_pulses - current_state.get("position_pulses", 0) if success else 0,
         "ok": success,
-        "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "effective_percent": eff
+        "at": datetime.now(timezone.utc).isoformat(),
+        "source": "api_manual",
+        "error": err if not success else None
     }
-    return JSONResponse({"ok": success, "rc":rc, "stdout":out, "stderr":err, "percent":eff, "enforced_cap":cap, "last_event": last_event})
+    
+    # PERSIST the action (this was missing - root cause of solar not showing!)
+    save_last_action(last_event)
+    if success:
+        update_door_position(new_pulses, base_pulses)
+    
+    return JSONResponse({
+        "ok": success,
+        "rc": rc,
+        "stdout": out,
+        "stderr": err,
+        "percent": eff,
+        "enforced_cap": cap,
+        "last_event": last_event,
+        "door_state": get_door_state()
+    })
 
 @app.post("/close")
 def close_(request: Request) -> JSONResponse:
     _require_auth_if_configured(request)
-    rc, out, err = _run([CLI,"close"])
+    
+    rc, out, err = run_command([CLI,"close"])
     success = (rc == 0)
+    
     last_event = {
         "cmd": "close",
+        "requested_percent": None,
+        "actual_pulses": 0,
+        "delta_pulses": 0,
         "ok": success,
-        "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "effective_percent": None
+        "at": datetime.now(timezone.utc).isoformat(),
+        "source": "api_manual",
+        "error": err if not success else None
     }
-    return JSONResponse({"ok": success, "rc":rc, "stdout":out, "stderr":err, "last_event": last_event})
+    
+    # PERSIST the action (this was missing!)
+    save_last_action(last_event)
+    if success:
+        update_door_position(0)
+    
+    return JSONResponse({
+        "ok": success,
+        "rc": rc,
+        "stdout": out,
+        "stderr": err,
+        "last_event": last_event,
+        "door_state": get_door_state()
+    })
+
+@app.get("/door/state")
+def get_door_state_endpoint(request: Request) -> JSONResponse:
+    """Get current door position and last action."""
+    _require_auth_if_configured(request)
+    return JSONResponse({
+        "door_state": get_door_state(),
+        "last_action": get_last_action()
+    })
+
+@app.post("/door/reset")
+def reset_door_state_endpoint(request: Request) -> JSONResponse:
+    """Reset door position to closed (after manual adjustment)."""
+    _require_auth_if_configured(request)
+    state = reset_door_position()
+    return JSONResponse({
+        "ok": True,
+        "door_state": state,
+        "message": "Door position reset to closed (0 pulses)"
+    })
 
 @app.get("/automation")
 def get_automation(request: Request) -> JSONResponse:
@@ -199,7 +273,7 @@ def put_automation(request: Request, payload: dict[str, Any]) -> JSONResponse:
 @app.post("/automation/apply")
 def apply_automation(request: Request) -> JSONResponse:
     _require_auth_if_configured(request)
-    rc, out, err = _run(["sudo", "systemctl", "start", "coopdoor-apply-schedule.service"], timeout=30.0)
+    rc, out, err = run_command(["sudo", "systemctl", "start", "coopdoor-apply-schedule.service"], timeout=30.0)
     if rc != 0: raise HTTPException(status_code=500, detail=f"Failed to apply: {err or out}")
     return JSONResponse({"ok": True, "stdout": out})
 
@@ -208,8 +282,8 @@ def preview_schedule(request: Request) -> JSONResponse:
     _require_auth_if_configured(request)
     cfg = _load_cfg()
     try: o, c, tz = _compute_today_times(cfg)
-    except HTTPException as e: return JSONResponse({"error": e.detail, "timezone": _system_timezone(), "mode": cfg.get("mode", "fixed")}, status_code=400)
-    except Exception as e: return JSONResponse({"error": str(e), "timezone": _system_timezone(), "mode": cfg.get("mode", "fixed")}, status_code=500)
+    except HTTPException as e: return JSONResponse({"error": e.detail, "timezone": system_timezone(), "mode": cfg.get("mode", "fixed")}, status_code=400)
+    except Exception as e: return JSONResponse({"error": str(e), "timezone": system_timezone(), "mode": cfg.get("mode", "fixed")}, status_code=500)
     return JSONResponse({"open_time": o, "close_time": c, "timezone": tz, "open_percent_cap": cfg.get("open_percent", 100), "mode": cfg.get("mode", "fixed")})
 
 @app.get("/config/backups")
@@ -288,9 +362,6 @@ def delete_backup(request: Request, payload: dict[str, Any]) -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 # Unified config endpoint for UI compatibility
-DEVICE_CONFIG_PATH = CONF_DIR / "config.json"
-UI_CONFIG_PATH = CONF_DIR / "ui.json"
-
 def _load_device_config() -> dict[str, Any]:
     if not DEVICE_CONFIG_PATH.exists():
         return {}

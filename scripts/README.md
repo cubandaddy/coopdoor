@@ -9,8 +9,6 @@ This directory contains all management scripts for CoopDoor. Each script is self
 | **config.sh** | Shared configuration | Sourced by other scripts |
 | **install.sh** | Install CoopDoor | `sudo ./install.sh` |
 | **uninstall.sh** | Remove CoopDoor | `sudo ./uninstall.sh [options]` |
-| **backup.sh** | Backup configuration | `sudo ./backup.sh [options]` |
-| **restore.sh** | Restore configuration | `sudo ./restore.sh BACKUP [options]` |
 
 ## Quick Reference
 
@@ -19,30 +17,6 @@ This directory contains all management scripts for CoopDoor. Each script is self
 # Standard installation
 cd coopdoor-unified
 sudo ./scripts/install.sh
-```
-
-### Backup
-```bash
-# Create backup (saved to ~/coopdoor-backups/)
-sudo ./scripts/backup.sh
-
-# Backup to custom location
-sudo ./scripts/backup.sh --output /mnt/backups
-
-# Keep as directory (don't compress)
-sudo ./scripts/backup.sh --no-archive
-```
-
-### Restore
-```bash
-# Restore from archive
-sudo ./scripts/restore.sh ~/coopdoor-backups/coopdoor-backup-20241026-120000.tar.gz
-
-# Restore from directory
-sudo ./scripts/restore.sh ~/coopdoor-backups/coopdoor-backup-20241026-120000
-
-# Restore without restarting services
-sudo ./scripts/restore.sh backup.tar.gz --no-restart
 ```
 
 ### Uninstall
@@ -178,129 +152,12 @@ sudo ./scripts/uninstall.sh --keep-config --keep-user --yes
 coop user               # ✓ Removed (unless --keep-user)
 ```
 
-## backup.sh
-
-**Purpose:** Create timestamped backups of configuration
-
-**What it backs up:**
-1. Device configuration (/etc/coopdoor/config.json)
-2. Automation configuration (/etc/coopdoor/automation.json)
-3. User configuration (~/.config/coopdoor/)
-4. Runtime logs (~/.cache/coopdoor/coopd.log)
-5. Systemd service overrides (if any)
-6. Metadata (timestamp, hostname, user)
-
-**Options:**
-- `--no-archive` - Keep as directory (don't create tar.gz)
-- `--output PATH` - Save to custom directory
-- `--help` - Show help
-
-**Default location:** `~/coopdoor-backups/`
-
-**Usage:**
-```bash
-# Standard backup
-sudo ./scripts/backup.sh
-
-# Output: ~/coopdoor-backups/coopdoor-backup-20241026-120000.tar.gz
-
-# Backup to USB drive
-sudo ./scripts/backup.sh --output /mnt/usb/backups
-
-# Keep as directory
-sudo ./scripts/backup.sh --no-archive
-```
-
-**Backup structure:**
-```
-coopdoor-backup-20241026-120000/
-├── backup-info.txt     # Metadata
-├── config/             # All config files
-│   ├── config.json
-│   └── automation.json
-├── runtime/            # Logs
-│   └── coopd.log
-└── systemd/            # Service files
-    └── (overrides if any)
-```
-
-## restore.sh
-
-**Purpose:** Restore configuration from backup
-
-**What it restores:**
-1. Device configuration
-2. Automation configuration
-3. User configuration
-4. Validates backup integrity
-5. Optionally restarts services
-
-**Arguments:**
-- `BACKUP` - Path to backup (.tar.gz or directory)
-
-**Options:**
-- `--no-restart` - Don't restart services after restore
-- `--yes` - Skip confirmation
-- `--help` - Show help
-
-**Usage:**
-```bash
-# Restore from archive
-sudo ./scripts/restore.sh ~/coopdoor-backups/coopdoor-backup-20241026-120000.tar.gz
-
-# Restore from directory
-sudo ./scripts/restore.sh ~/coopdoor-backups/coopdoor-backup-20241026-120000
-
-# Restore without restarting
-sudo ./scripts/restore.sh backup.tar.gz --no-restart
-
-# Silent restore
-sudo ./scripts/restore.sh backup.tar.gz --yes
-```
-
-**What happens:**
-1. Validates backup structure
-2. Shows backup info (date, source)
-3. Asks for confirmation (unless --yes)
-4. Stops services (unless --no-restart)
-5. Restores configuration files
-6. Restarts services (unless --no-restart)
-
-**Note:** Application files (Python code, UI) are NOT restored. Use the installer to update code.
-
-## Typical Workflows
-
 ### New Installation
 ```bash
-cd coopdoor-unified
+cd coopdoor
 sudo ./scripts/install.sh
 ```
 
-### Before Making Changes
-```bash
-# Backup current config
-sudo ./scripts/backup.sh
-
-# Now safe to experiment
-```
-
-### After Breaking Something
-```bash
-# Restore last backup
-sudo ./scripts/restore.sh ~/coopdoor-backups/coopdoor-backup-YYYYMMDD-HHMMSS.tar.gz
-```
-
-### Moving to New Raspberry Pi
-```bash
-# On old Pi:
-sudo ./scripts/backup.sh
-# Copy backup file to new Pi
-
-# On new Pi:
-cd coopdoor-unified
-sudo ./scripts/install.sh                    # Install fresh
-sudo ./scripts/restore.sh ~/backup.tar.gz    # Restore config
-```
 
 ### Complete Removal
 ```bash
@@ -430,16 +287,6 @@ sudo ./install.sh
 
 # Or with full path
 sudo /path/to/coopdoor-unified/scripts/install.sh
-```
-
-### Backup/restore fails
-```bash
-# Check backup structure
-tar -tzf backup.tar.gz | head -20
-
-# Validate backup manually
-tar -xzf backup.tar.gz
-ls -la coopdoor-backup-*/
 ```
 
 ## Best Practices

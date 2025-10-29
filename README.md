@@ -1,4 +1,4 @@
-# CoopDoor v3.3.1
+# CoopDoor v3.3.2
 
 **Automatic Chicken Coop Door Controller with Scheduling**
 

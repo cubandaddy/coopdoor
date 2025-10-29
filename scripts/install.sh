@@ -1,117 +1,254 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Get script directory and source shared config
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config.sh"
-INSTALLER_DIR="$(dirname "${SCRIPT_DIR}")"
+# CoopDoor Installation Script
+# Installs the CoopDoor system with all dependencies and services
 
-preflight_checks() {
-    log "Running preflight checks"
-    need_root; need_cmd python3; need_cmd systemctl
-    
-    local py_version=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-    log "Found Python ${py_version}"
-    
-    [[ -d "${INSTALLER_DIR}/app" ]] || die "app/ directory not found"
-    [[ -d "${INSTALLER_DIR}/ui" ]] || die "ui/ directory not found"
-    
-    log "Updating package manager"
-    apt-get update -y >/dev/null 2>&1
-    apt-get install -y python3 python3-venv python3-pip curl >/dev/null 2>&1
-    ensure_user "${APP_USER}"
+INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYSTEM_APP_DIR="/opt/coopdoor"
+VENV_DIR="${SYSTEM_APP_DIR}/.venv"
+CLI_SHIM="/usr/local/bin/coop-door"
+APP_USER="root"
+
+SYSTEMD_DIR="/etc/systemd/system"
+CONFIG_DIR="/etc/coopdoor"
+BACKUP_DIR="/var/lib/coopdoor-backups"
+
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
 }
 
-setup_directories() {
-    log "Setting up directory structure"
-    mkdir -p "${SYSTEM_APP_DIR}" "${SYSTEM_APP_DIR}/ui" "${SYSTEM_CONF_DIR}"
-    chown -R "${APP_USER}:${APP_USER}" "${SYSTEM_APP_DIR}" "${SYSTEM_CONF_DIR}"
-    chmod 755 "${SYSTEM_APP_DIR}" "${SYSTEM_APP_DIR}/ui" "${SYSTEM_CONF_DIR}"
-    
-    # Create backup directory with proper permissions for API
-    log "Setting up backup directory"
-    mkdir -p "/var/lib/coopdoor-backups"
-    chown "${APP_USER}:${APP_USER}" "/var/lib/coopdoor-backups"
-    chmod 755 "/var/lib/coopdoor-backups"
-    
-    if [[ -n "${SUDO_USER:-}" ]]; then
-        local real_home=$(get_real_home)
-        sudo -u "${SUDO_USER}" mkdir -p "${real_home}/coopdoor" "${real_home}/.config/coopdoor" "${real_home}/.cache/coopdoor"
+error() {
+    echo "[ERROR] $*" >&2
+    exit 1
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        error "This script must be run as root (use sudo)"
     fi
 }
 
-setup_python_env() {
-    log "Setting up Python virtual environment"
-    [[ ! -x "${BIN_PY}" ]] && sudo -u "${APP_USER}" python3 -m venv "${VENV_DIR}"
-    log "Installing dependencies"
-    sudo -u "${APP_USER}" "${BIN_PIP}" install --quiet --upgrade pip bleak "fastapi>=0.111" "uvicorn[standard]>=0.30" "astral>=3.2" "pgeocode>=0.4" >/dev/null 2>&1
+check_dependencies() {
+    log "Checking system dependencies"
+    
+    local missing=()
+    
+    command -v python3 >/dev/null 2>&1 || missing+=("python3")
+    command -v pip3 >/dev/null 2>&1 || missing+=("python3-pip")
+    command -v systemctl >/dev/null 2>&1 || missing+=("systemd")
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        error "Missing dependencies: ${missing[*]}. Please install them first."
+    fi
+    
+    # Check Python version (need 3.10+)
+    local py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    if [[ $(echo "$py_version < 3.10" | bc -l 2>/dev/null || echo "0") -eq 1 ]]; then
+        log "Warning: Python $py_version detected. Python 3.10+ recommended."
+    fi
 }
 
 install_app_files() {
     log "Installing application files"
+    
+    mkdir -p "${SYSTEM_APP_DIR}"
+    mkdir -p "${SYSTEM_APP_DIR}/ui"
+    
     install -m 0755 -o "${APP_USER}" -g "${APP_USER}" "${INSTALLER_DIR}/app/coopd.py" "${SYSTEM_APP_DIR}/"
     install -m 0755 -o "${APP_USER}" -g "${APP_USER}" "${INSTALLER_DIR}/app/coopctl.py" "${SYSTEM_APP_DIR}/"
-    install -m 0644 -o "${APP_USER}" -g "${APP_USER}" "${INSTALLER_DIR}/app/coopdoor_api.py" "${SYSTEM_APP_DIR}/"
+    install -m 0755 -o "${APP_USER}" -g "${APP_USER}" "${INSTALLER_DIR}/app/coopdoor_api.py" "${SYSTEM_APP_DIR}/"
     install -m 0755 -o "${APP_USER}" -g "${APP_USER}" "${INSTALLER_DIR}/app/schedule_apply.py" "${SYSTEM_APP_DIR}/"
+    install -m 0755 -o "${APP_USER}" -g "${APP_USER}" "${INSTALLER_DIR}/app/door_state.py" "${SYSTEM_APP_DIR}/"
+    install -m 0755 -o "${APP_USER}" -g "${APP_USER}" "${INSTALLER_DIR}/app/shared_config.py" "${SYSTEM_APP_DIR}/"
+    
     log "Installing UI files"
     cp -r "${INSTALLER_DIR}/ui"/* "${SYSTEM_APP_DIR}/ui/"
     chown -R "${APP_USER}:${APP_USER}" "${SYSTEM_APP_DIR}/ui"
+    
     install -m 0755 "${INSTALLER_DIR}/config/coop-door-cli-shim" "${CLI_SHIM}"
 }
 
-write_configs() {
-    log "Writing configuration files"
-    cat > "${SYSTEM_CONF_DIR}/config.json" <<EOF
-{
-  "mac": "${MAC_DEFAULT}",
-  "adapter": "${ADAPTER_DEFAULT}",
-  "connect_timeout": ${CONNECT_TIMEOUT_DEFAULT},
-  "base_pulses": ${BASE_PULSES_DEFAULT},
-  "pulse_interval": ${PULSE_INTERVAL_DEFAULT},
-  "home_before_open": ${HOME_BEFORE_OPEN_DEFAULT},
-  "min_pause_after_action": ${MIN_PAUSE_AFTER_ACTION_DEFAULT}
-}
-EOF
-    chown "${APP_USER}:${APP_USER}" "${SYSTEM_CONF_DIR}/config.json"
+setup_venv() {
+    log "Setting up Python virtual environment"
     
-    if [[ -n "${SUDO_USER:-}" ]]; then
-        local real_home=$(get_real_home)
-        sudo -u "${SUDO_USER}" mkdir -p "${real_home}/.config/coopdoor"
-        sudo -u "${SUDO_USER}" cp "${SYSTEM_CONF_DIR}/config.json" "${real_home}/.config/coopdoor/"
+    if [[ -d "${VENV_DIR}" ]]; then
+        log "Virtual environment already exists, recreating"
+        rm -rf "${VENV_DIR}"
     fi
+    
+    python3 -m venv "${VENV_DIR}"
+    
+    log "Installing Python dependencies"
+    "${VENV_DIR}/bin/pip" install --upgrade pip
+    "${VENV_DIR}/bin/pip" install \
+        fastapi \
+        uvicorn[standard] \
+        bleak \
+        astral \
+        pgeocode \
+        requests
+    
+    chown -R "${APP_USER}:${APP_USER}" "${VENV_DIR}"
 }
 
 install_systemd_services() {
     log "Installing systemd services"
+    
+    # Install API service
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-api.service" "${SYSTEMD_DIR}/"
+    
+    # Install schedule timer and service
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-apply-schedule.service" "${SYSTEMD_DIR}/"
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-apply-schedule.timer" "${SYSTEMD_DIR}/"
+    
     systemctl daemon-reload
-    systemctl enable --now coopdoor-api.service coopdoor-apply-schedule.timer
+    
+    log "Enabling and starting coopdoor-api service"
+    systemctl enable coopdoor-api.service
+    systemctl restart coopdoor-api.service
+    
+    log "Enabling coopdoor-apply-schedule timer"
+    systemctl enable coopdoor-apply-schedule.timer
+    systemctl start coopdoor-apply-schedule.timer
 }
 
-install_sudoers() {
-    log "Installing sudoers rule"
-    install -m 0440 "${INSTALLER_DIR}/config/coopdoor-apply-sudoers" "${SUDOERS_FILE}"
-    visudo -cf "${SUDOERS_FILE}" >/dev/null 2>&1 || { rm -f "${SUDOERS_FILE}"; die "Invalid sudoers file"; }
+setup_config() {
+    log "Setting up configuration directories"
+    
+    mkdir -p "${CONFIG_DIR}"
+    mkdir -p "${BACKUP_DIR}"
+    
+    # Create default config if it doesn't exist
+    if [[ ! -f "${CONFIG_DIR}/config.json" ]]; then
+        log "Creating default device config"
+        cat > "${CONFIG_DIR}/config.json" <<EOF
+{
+  "mac": "00:80:E1:22:EE:F2",
+  "adapter": "hci0",
+  "connect_timeout": 15,
+  "base_pulses": 14,
+  "pulse_interval": 2.0,
+  "home_before_open": false,
+  "min_pause_after_action": 1.0
+}
+EOF
+    fi
+    
+    # Create default automation config if it doesn't exist
+    if [[ ! -f "${CONFIG_DIR}/automation.json" ]]; then
+        log "Creating default automation config"
+        cat > "${CONFIG_DIR}/automation.json" <<EOF
+{
+  "mode": "fixed",
+  "fixed": {
+    "open": "07:00",
+    "close": "20:30"
+  },
+  "open_percent": 100,
+  "timezone": "America/New_York"
+}
+EOF
+    fi
+    
+    # Initialize state files if they don't exist
+    if [[ ! -f "${CONFIG_DIR}/door_state.json" ]]; then
+        log "Initializing door state"
+        cat > "${CONFIG_DIR}/door_state.json" <<EOF
+{
+  "position_pulses": 0,
+  "position_percent": 0,
+  "last_updated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+    fi
+    
+    chown -R "${APP_USER}:${APP_USER}" "${CONFIG_DIR}"
+    chown -R "${APP_USER}:${APP_USER}" "${BACKUP_DIR}"
+    chmod 755 "${CONFIG_DIR}"
+    chmod 755 "${BACKUP_DIR}"
 }
 
-setup_tailscale() {
-    [[ "${TAILSCALE_ENABLE_SERVE}" == "1" ]] && command -v tailscale >/dev/null 2>&1 && {
-        log "Setting up Tailscale Serve"
-        tailscale serve --bg http://127.0.0.1:8080 || warn "Tailscale serve failed"
-    }
+apply_schedule() {
+    log "Applying initial schedule configuration"
+    
+    if [[ -x "${VENV_DIR}/bin/python3" && -f "${SYSTEM_APP_DIR}/schedule_apply.py" ]]; then
+        "${VENV_DIR}/bin/python3" "${SYSTEM_APP_DIR}/schedule_apply.py" || log "Warning: Schedule apply failed (this is normal on first install)"
+    fi
+}
+
+check_tailscale() {
+    if command -v tailscale >/dev/null 2>&1; then
+        log "Tailscale detected"
+        
+        if tailscale status >/dev/null 2>&1; then
+            log "Setting up Tailscale funnel for remote access"
+            tailscale serve --bg http://127.0.0.1:8080 || log "Warning: Tailscale serve setup failed"
+        else
+            log "Tailscale is installed but not connected. Run 'tailscale up' to enable remote access."
+        fi
+    fi
+}
+
+print_success() {
+    local ip=$(hostname -I | awk '{print $1}')
+    
+    cat <<EOF
+
+═══════════════════════════════════════════════════════════════
+  CoopDoor Installation Complete! 🎉
+═══════════════════════════════════════════════════════════════
+
+Next steps:
+
+1. Configure your BLE device MAC address:
+   sudo coop-door config --set mac=XX:XX:XX:XX:XX:XX
+
+2. Test the connection:
+   coop-door status
+
+3. Access the Web UI:
+   Local:     http://${ip}:8080/
+   Localhost: http://localhost:8080/
+
+4. Configure your schedule in the Config tab
+
+Services:
+- API:       systemctl status coopdoor-api.service
+- Scheduler: systemctl status coopdoor-apply-schedule.timer
+
+Logs:
+- API:       journalctl -u coopdoor-api.service -f
+- Scheduler: journalctl -u coopdoor-apply-schedule.timer -f
+
+Files:
+- App:       ${SYSTEM_APP_DIR}/
+- Config:    ${CONFIG_DIR}/
+- Backups:   ${BACKUP_DIR}/
+- CLI:       ${CLI_SHIM}
+
+Documentation:
+  cat ${INSTALLER_DIR}/README.md
+
+═══════════════════════════════════════════════════════════════
+EOF
 }
 
 main() {
-    log "CoopDoor Unified Installer v3.3"; log "Installing from: ${INSTALLER_DIR}"; log ""
-    preflight_checks; setup_directories; setup_python_env; install_app_files
-    write_configs; install_systemd_services; install_sudoers; setup_tailscale
-    log ""; log "Installation Complete!"
-    log "CLI: coop-door status | open 75 | close | diag"
-    log "Web: http://127.0.0.1:8080/"
-    log "Backup: sudo ${SCRIPT_DIR}/backup.sh"
-    log "Uninstall: sudo ${SCRIPT_DIR}/uninstall.sh"
+    log "Starting CoopDoor installation"
+    
+    check_root
+    check_dependencies
+    install_app_files
+    setup_venv
+    setup_config
+    install_systemd_services
+    apply_schedule
+    check_tailscale
+    
+    print_success
+    
+    log "Installation completed successfully"
 }
 
 main "$@"

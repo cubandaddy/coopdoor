@@ -3,6 +3,14 @@ from __future__ import annotations
 import argparse, json, os, socket, subprocess, sys, time
 from pathlib import Path
 from typing import Any, Optional
+from datetime import datetime, timezone
+
+# Import shared modules (DRY)
+from door_state import (
+    percent_to_pulses, save_last_action, update_door_position, 
+    get_door_state, get_last_action
+)
+from shared_config import DEVICE_CONFIG_PATH
 
 HOME = Path.home()
 RUNTIME = HOME / ".cache" / "coopdoor"
@@ -103,19 +111,53 @@ def _open_percent(percent: float) -> None:
         print(f"Failed to connect within {cfg.get('connect_timeout',15)}s.")
         sys.exit(1)
     print("Connected")
+    
+    # Home before open if configured
     if bool(cfg.get("home_before_open", False)):
         _ = rpc({"cmd":"close", "one_shot": False}, timeout=4.0)
+        update_door_position(0)  # Track closed state
         time.sleep(float(cfg.get("min_pause_after_action", 1.0)))
+    
     pct = max(0.0, min(100.0, float(percent)))
     base = int(cfg.get("base_pulses", 14))
     pint = float(cfg.get("pulse_interval", 2.0))
-    pulses = max(1, int(round(base * (pct/100.0))))
+    
+    # Use shared function with ceiling (ALWAYS ROUNDS UP)
+    pulses = percent_to_pulses(int(pct), base)
+    
     print(f"Opening {pct:.1f}% → {pulses} pulse(s) @ {pint:.2f}s")
     total = max(6.0, pulses*pint + 3.0)
     res = rpc({"cmd":"open_pulses", "pulses": pulses, "interval": pint, "one_shot": True}, timeout=total)
-    if not res: print("Disconnected"); sys.exit(1)
-    if res.get("started"): print("Started.")
-    else: print(res)
+    
+    success = res and res.get("started", False)
+    
+    # Persist state and action
+    if success:
+        update_door_position(pulses, base)
+        save_last_action({
+            "cmd": "open",
+            "requested_percent": int(pct),
+            "actual_pulses": pulses,
+            "delta_pulses": pulses,
+            "ok": True,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "cli_manual",
+            "error": None
+        })
+        print("Started.")
+    else:
+        save_last_action({
+            "cmd": "open",
+            "requested_percent": int(pct),
+            "actual_pulses": 0,
+            "delta_pulses": 0,
+            "ok": False,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "cli_manual",
+            "error": str(res) if res else "No response"
+        })
+        print(res if res else "Disconnected")
+        sys.exit(1)
 
 def _open_pulses(n: int, interval: float | None) -> None:
     cfg = load_cfg()
@@ -129,9 +171,15 @@ def _open_pulses(n: int, interval: float | None) -> None:
     print(f"Opening (raw) → {n} pulse(s) @ {pint:.2f}s")
     total = max(6.0, n*pint + 3.0)
     res = rpc({"cmd":"open_pulses", "pulses": n, "interval": pint, "one_shot": True}, timeout=total)
-    if not res: print("Disconnected"); sys.exit(1)
-    if res.get("started"): print("Started.")
-    else: print(res)
+    
+    success = res and res.get("started", False)
+    if success:
+        base = int(cfg.get("base_pulses", 14))
+        update_door_position(n, base)
+        print("Started.")
+    else:
+        print(res if res else "Disconnected")
+        sys.exit(1)
 
 def _close() -> None:
     cfg = load_cfg()
@@ -141,8 +189,34 @@ def _close() -> None:
         sys.exit(1)
     print("Connected")
     res = rpc({"cmd":"close", "one_shot": True}, timeout=5.0)
-    if not res: print("Disconnected"); sys.exit(1)
-    print("Close sent.")
+    
+    success = res is not None
+    if success:
+        update_door_position(0)  # Door is closed = 0 pulses
+        save_last_action({
+            "cmd": "close",
+            "requested_percent": None,
+            "actual_pulses": 0,
+            "delta_pulses": 0,
+            "ok": True,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "cli_manual",
+            "error": None
+        })
+        print("Close sent.")
+    else:
+        save_last_action({
+            "cmd": "close",
+            "requested_percent": None,
+            "actual_pulses": 0,
+            "delta_pulses": 0,
+            "ok": False,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "cli_manual",
+            "error": "No response"
+        })
+        print("Disconnected")
+        sys.exit(1)
 
 def _config_show() -> None:
     print(json.dumps(load_cfg(), indent=2))
@@ -166,6 +240,8 @@ def _config_set(kv: list[str]) -> None:
 def _diag(verbose: bool) -> None:
     print("== CONFIG =="); _config_show()
     print("\n== STATUS =="); print(status_only())
+    print("\n== DOOR STATE =="); print(get_door_state())
+    print("\n== LAST ACTION =="); print(get_last_action())
     print("\n== TAIL LOG ==")
     try:
         if LOG.exists():

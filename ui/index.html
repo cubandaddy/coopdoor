@@ -42,7 +42,7 @@
     .btn.ghost{background:transparent;border-color:var(--border);color:var(--fg)}
     .btn:disabled{opacity:.55;cursor:default}
     .btn.loading{pointer-events:none;opacity:.85;position:relative}
-    .btn.loading::after{content:"";width:18px;height:18px;border-radius:50%;border:2px solid #fff;border-right-color:transparent;position:absolute;right:12px;top:50%;transform:translateY(-50%);animation:spin .7s linear infinite}
+    .btn.loading::after{content:"";width:18px;height:18px;border-radius:50%;border:2px solid #fff;border-right-color:transparent;position:absolute;right:12px;top:50%;transform:translateY(-50%);animation:spin .6s linear infinite}
     @keyframes spin{to{transform:translateY(-50%) rotate(360deg)}}
     .actions{display:grid;grid-template-columns:repeat(2, minmax(140px,1fr));gap:12px}
     .status-card{background:var(--card);border:1px dashed var(--border);padding:14px;border-radius:12px}
@@ -104,11 +104,11 @@
 
     <div class="status-card" style="margin-top:14px">
       <div class="kv">
-        <div class="dim">Door</div>       <div id="sConnected">Unknown</div>
-        <div class="dim">Last Action</div> <div id="sLast">No actions yet</div>
-        <div class="dim">Mode</div>        <div id="sSched">--</div>
-        <div class="dim">Open</div>        <div id="sOpen">--:--</div>
-        <div class="dim">Close</div>       <div id="sClose">--:--</div>
+        <div class="dim">Position</div>     <div id="sDoorPos">Unknown</div>
+        <div class="dim">Last Action</div>  <div id="sLast">No actions yet</div>
+        <div class="dim">Mode</div>         <div id="sSched">--</div>
+        <div class="dim">Open</div>         <div id="sOpen">--:--</div>
+        <div class="dim">Close</div>        <div id="sClose">--:--</div>
       </div>
     </div>
   </section>
@@ -325,30 +325,39 @@
   }
 
   function renderStatus(e){
-    const connected = !!(e && (e.connected || (e.status && e.status.connected)));
-    sConnected.textContent = connected ? 'True' : 'False';
-    sConnected.className = connected ? 'ok' : 'bad';
-
-    const le = (e && e.last_event) || S.last;
-    if (le && le.cmd) {
-      const when = fmt(le.at);
-      const verb = le.cmd.charAt(0).toUpperCase() + le.cmd.slice(1);
-      const pct = (le.cmd === 'open' && typeof le.effective_percent === 'number') ? (' ' + le.effective_percent + '%') : '';
-      const res = le.ok ? 'Succeeded' : 'Failed';
-      const resClass = le.ok ? 'ok' : 'bad';
-      sLast.innerHTML = `${verb}${pct} <span class="${resClass}">${res}</span> at ${when.time} on ${when.date}`;
+    // Show door position instead of connection boolean
+    const doorState = e && e.door_state;
+    if (doorState && typeof doorState.position_percent === 'number') {
+        const pct = doorState.position_percent;
+        const pulses = doorState.position_pulses;
+        sDoorPos.textContent = pct + '% (' + pulses + ' pulses)';
+        sDoorPos.className = pct > 0 ? 'ok' : 'dim';
     } else {
-      sLast.textContent = 'n/a';
+        sDoorPos.textContent = 'Unknown';
+        sDoorPos.className = '';
+    }
+
+    const le = (e && e.last_action) || S.last;
+    if (le && le.cmd) {
+        const when = fmt(le.at);
+        const verb = le.cmd.charAt(0).toUpperCase() + le.cmd.slice(1);
+        const pct = (le.cmd === 'open' && typeof le.requested_percent === 'number') ? (' ' + le.requested_percent + '%') : '';
+        const res = le.ok ? 'Succeeded' : 'Failed';
+        const resClass = le.ok ? 'ok' : 'bad';
+        const src = le.source ? ' <span class="dim">(' + le.source.replace(/_/g, ' ') + ')</span>' : '';
+        sLast.innerHTML = `${verb}${pct} <span class="${resClass}">${res}</span> at ${when.time} on ${when.date}${src}`;
+    } else {
+        sLast.textContent = 'No actions yet';
     }
   }
 
   async function getStatus(){
     try {
       const j = await api('/status');
-      if (j.last_event) S.last = j.last_event;
+      if (j.last_action) S.last = j.last_action;
       renderStatus(j);
     } catch(e){
-      renderStatus({connected:false, last_event:S.last});
+      renderStatus({connected:false, last_action:S.last});
     }
   }
 
@@ -389,7 +398,7 @@
       const result = await api('/open?percent=' + encodeURIComponent(pct), {method:'POST', timeoutMs:30000});
       if (result.last_event) {
         S.last = result.last_event;
-        renderStatus({connected:true, last_event:result.last_event});
+        renderStatus({connected:true, last_event:result.last_event, door_state:result.door_state});
       }
     } catch(e) {
       console.error('Open command error:', e);
@@ -409,7 +418,7 @@
       const result = await api('/close', {method:'POST', timeoutMs:30000});
       if (result.last_event) {
         S.last = result.last_event;
-        renderStatus({connected:true, last_event:result.last_event});
+        renderStatus({connected:true, last_event:result.last_event, door_state:result.door_state});
       }
     } catch(e) {
       console.error('Close command error:', e);
