@@ -2,38 +2,25 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Tuple
 
 from astral import LocationInfo
 from astral.sun import sun
 import zoneinfo
 
-CONF_DIR = Path("/etc/coopdoor")
-AUTOMATION_PATH = CONF_DIR / "automation.json"
+# Import shared modules (DRY)
+from shared_config import (
+    CONF_DIR, AUTOMATION_PATH, SYSTEMD_DIR,
+    system_timezone, run_command
+)
 
-SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")
-OPEN_SVC = SYSTEMD_UNIT_DIR / "coopdoor-open.service"
-CLOSE_SVC = SYSTEMD_UNIT_DIR / "coopdoor-close.service"
-APPLY_SVC = SYSTEMD_UNIT_DIR / "coopdoor-apply-schedule.service"
-APPLY_TIMER = SYSTEMD_UNIT_DIR / "coopdoor-apply-schedule.timer"
-OPEN_TIMER = SYSTEMD_UNIT_DIR / "coopdoor-open.timer"
-CLOSE_TIMER = SYSTEMD_UNIT_DIR / "coopdoor-close.timer"
-
-def sh(*args: str) -> Tuple[int, str, str]:
-    p = subprocess.run(args, check=False, capture_output=True, text=True)
-    return p.returncode, p.stdout.strip(), p.stderr.strip()
-
-def system_timezone() -> str:
-    tz_file = Path("/etc/timezone")
-    if tz_file.exists():
-        try:
-            return tz_file.read_text().strip()
-        except Exception:
-            pass
-    return "UTC"
+OPEN_SVC = SYSTEMD_DIR / "coopdoor-open.service"
+CLOSE_SVC = SYSTEMD_DIR / "coopdoor-close.service"
+APPLY_SVC = SYSTEMD_DIR / "coopdoor-apply-schedule.service"
+APPLY_TIMER = SYSTEMD_DIR / "coopdoor-apply-schedule.timer"
+OPEN_TIMER = SYSTEMD_DIR / "coopdoor-open.timer"
+CLOSE_TIMER = SYSTEMD_DIR / "coopdoor-close.timer"
 
 def write_if_changed(path: Path, content: str) -> None:
     old = path.read_text() if path.exists() else None
@@ -77,8 +64,8 @@ WantedBy=timers.target
 """
     write_if_changed(APPLY_SVC, apply_service)
     write_if_changed(APPLY_TIMER, apply_timer)
-    sh("systemctl", "daemon-reload")
-    sh("systemctl", "enable", "--now", "coopdoor-apply-schedule.timer")
+    run_command(["systemctl", "daemon-reload"])
+    run_command(["systemctl", "enable", "--now", "coopdoor-apply-schedule.timer"])
 
 def set_fixed(open_hm: str, close_hm: str, tz: str) -> None:
     open_timer = f"""[Unit]
@@ -101,9 +88,9 @@ WantedBy=timers.target
 """
     write_if_changed(OPEN_TIMER, open_timer)
     write_if_changed(CLOSE_TIMER, close_timer)
-    sh("systemctl", "daemon-reload")
+    run_command(["systemctl", "daemon-reload"])
     ensure_action_services()
-    sh("systemctl", "enable", "--now", "coopdoor-open.timer", "coopdoor-close.timer")
+    run_command(["systemctl", "enable", "--now", "coopdoor-open.timer", "coopdoor-close.timer"])
 
 def set_solar(lat: float, lon: float, tz: str, sr_off: int, ss_off: int) -> None:
     tzinfo = zoneinfo.ZoneInfo(tz)
