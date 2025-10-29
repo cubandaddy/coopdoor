@@ -8,7 +8,7 @@ INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SYSTEM_APP_DIR="/opt/coopdoor"
 VENV_DIR="${SYSTEM_APP_DIR}/.venv"
 CLI_SHIM="/usr/local/bin/coop-door"
-APP_USER="root"
+APP_USER="coop"
 
 SYSTEMD_DIR="/etc/systemd/system"
 CONFIG_DIR="/etc/coopdoor"
