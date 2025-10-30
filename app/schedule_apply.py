@@ -28,19 +28,22 @@ def write_if_changed(path: Path, content: str) -> None:
         path.write_text(content)
 
 def ensure_action_services() -> None:
+    """Create open/close service files with retry logic"""
     open_service = """[Unit]
 Description=Open Coop Door (API)
 After=coopdoor-api.service
 [Service]
 Type=oneshot
-ExecStart=curl -sS -X POST http://127.0.0.1:8080/open
+# Try 3 times with 10-second delays between attempts if connection fails
+ExecStart=/bin/bash -c 'for i in 1 2 3; do curl -sS -X POST http://127.0.0.1:8080/open && break || sleep 10; done'
 """
     close_service = """[Unit]
 Description=Close Coop Door (API)
 After=coopdoor-api.service
 [Service]
 Type=oneshot
-ExecStart=curl -sS -X POST http://127.0.0.1:8080/close
+# Try 3 times with 10-second delays between attempts if connection fails
+ExecStart=/bin/bash -c 'for i in 1 2 3; do curl -sS -X POST http://127.0.0.1:8080/close && break || sleep 10; done'
 """
     write_if_changed(OPEN_SVC, open_service)
     write_if_changed(CLOSE_SVC, close_service)
