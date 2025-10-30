@@ -1,50 +1,69 @@
-# CoopDoor v3.3.2
+# 🐔 CoopDoor - Automatic Chicken Coop Door Controller
 
-**Automatic Chicken Coop Door Controller with Scheduling**
+[![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-Compatible-red)](https://www.raspberrypi.org/)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9+-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-CoopDoor is a Raspberry Pi-based automation system that controls a Bluetooth Low Energy (BLE) chicken coop door opener/closer. Set your chickens' schedule once, and the door opens and closes automatically every day—no more rushing home before sunset or waking up early to let them out.
+**Automated, scheduled control for Bluetooth Low Energy (BLE) chicken coop doors**
 
----
+CoopDoor is a Raspberry Pi-based automation system that controls BLE-enabled chicken coop door openers. Set your chickens' schedule once, and the door opens and closes automatically every day—no more rushing home before sunset or waking up early to let them out!
 
-## What is CoopDoor?
+## 🌟 Key Features
 
-CoopDoor connects your Raspberry Pi to a BLE-enabled automatic chicken coop door (like the Chickcozy or similar brands) and provides:
+- 🌅 **Automatic Sunrise/Sunset Scheduling** - Door opens at dawn, closes at dusk with seasonal adjustments
+- ⏰ **Fixed Time Scheduling** - Set specific times like 7:00 AM / 8:30 PM
+- 🎛️ **Manual Control** - Open/close via web interface or command line
+- 📱 **Progressive Web App (PWA)** - Control from phone, tablet, or computer
+- 📊 **Real-time Status Monitoring** - Connection status, last operation, and schedule tracking
+- 🔧 **Flexible Configuration** - Partial opening percentages, timezone support, offset adjustments
+- 🔄 **Auto-reconnection** - Maintains reliable BLE connection with automatic recovery
+- 📦 **DRY Architecture** - Modular design with separate components for easy maintenance
 
-- 🌅 **Automatic sunrise/sunset scheduling** - Door opens at dawn, closes at dusk
-- ⏰ **Fixed time scheduling** - Set specific times like 7:00 AM / 8:30 PM  
-- 🎛️ **Manual control** - Open/close via web interface or command line
-- 📱 **Web UI** - Control from your phone, tablet, or computer (works as a PWA)
-- 📊 **Status monitoring** - See connection status, last operation, and schedule
-- 🔧 **Flexible configuration** - Partial opening percentages, timezone support, offset adjustments
+## 📋 Table of Contents
 
-### The Problem It Solves
+- [Why CoopDoor?](#-why-coopdoor)
+- [System Architecture](#-system-architecture)
+- [Requirements](#-requirements)
+- [Installation](#-installation)
+- [Configuration](#%EF%B8%8F-configuration)
+- [Usage](#-usage)
+- [Web Interface](#-web-interface)
+- [Command Line Interface](#-command-line-interface)
+- [API Reference](#-api-reference)
+- [Scheduling Examples](#-scheduling-examples)
+- [Project Structure](#-project-structure)
+- [Troubleshooting](#-troubleshooting)
+- [Management Scripts](#-management-scripts)
+- [Development](#-development)
+- [Uninstallation](#-uninstallation)
+- [Contributing](#-contributing)
+- [License](#-license)
+
+## 🎯 Why CoopDoor?
 
 If you have chickens, you know the daily routine:
-- **Morning:** Let them out of the coop when it gets light
-- **Evening:** Close them in before dark (for safety from predators)
+- **Morning**: Let them out when it gets light
+- **Evening**: Close them in before dark (protection from predators)
 
-Miss the evening closing? Your chickens are vulnerable. Wake up late? They're waiting impatiently.
+**Miss the evening closing?** Your chickens are vulnerable to predators.  
+**Wake up late?** They're waiting impatiently, missing valuable foraging time.
 
-**CoopDoor automates this completely.** Set your schedule once, and your chickens are protected every day, automatically.
+CoopDoor automates this completely. Set your schedule once, and your chickens are protected every day, automatically.
 
----
-
-## How It Works
-
-### System Architecture
+## 🏗 System Architecture
 
 ```
-┌─────────────────┐         BLE          ┌──────────────────┐
-│  Raspberry Pi   │ ◄──────────────────► │   Coop Door      │
-│                 │      Bluetooth        │   (BLE Device)   │
-│  - CoopDoor API │                       │                  │
-│  - BLE Daemon   │                       │  - Motor         │
-│  - Scheduler    │                       │  - Battery       │
-└─────────────────┘                       └──────────────────┘
-         ▲
-         │ WiFi / Network
-         │
-         ▼
+┌─────────────────┐          BLE           ┌──────────────────┐
+│  Raspberry Pi   │ ◄──────────────────►   │   Coop Door      │
+│                 │       Bluetooth         │  (BLE Device)    │
+│ - CoopDoor API  │                        │                  │
+│ - BLE Daemon    │                        │  - Motor         │
+│ - Scheduler     │                        │  - Battery       │
+└─────────────────┘                        └──────────────────┘
+        ▲
+        │ WiFi / Network
+        │
+        ▼
 ┌─────────────────┐
 │  Your Phone/PC  │
 │  Web Browser    │
@@ -54,541 +73,221 @@ Miss the evening closing? Your chickens are vulnerable. Wake up late? They're wa
 └─────────────────┘
 ```
 
-### Key Components
+### Core Components
 
-1. **BLE Daemon (`coopd.py`)** - Maintains Bluetooth connection to your coop door device
-   - Automatically reconnects if connection drops
-   - Sends open/close commands via BLE
-   - Handles partial opening (25%, 50%, 75%, 100%)
+| Component | File | Purpose |
+|-----------|------|---------|
+| **BLE Daemon** | `coopd.py` | Maintains Bluetooth connection, sends commands, handles reconnection |
+| **Web API** | `coopdoor_api.py` | FastAPI server providing REST endpoints and web interface |
+| **Scheduler** | `schedule_apply.py` | Calculates daily times, manages systemd timers |
+| **CLI Tool** | `coopctl.py` | Command-line interface for manual control and diagnostics |
 
-2. **Web API (`coopdoor_api.py`)** - FastAPI server providing:
-   - REST API endpoints for control
-   - Web interface for configuration
-   - Status monitoring
-   - Schedule management
+## 📦 Requirements
 
-3. **Scheduler (`schedule_apply.py`)** - Runs daily to:
-   - Calculate today's sunrise/sunset (if in solar mode)
-   - Apply fixed times (if in fixed mode)
-   - Set up systemd timers for automatic open/close
+### Hardware
+- **Raspberry Pi** (any model with Bluetooth)
+  - Raspberry Pi 3/4/5 (built-in Bluetooth) ✅ **Recommended**
+  - Raspberry Pi Zero W/2W (built-in Bluetooth) ✅ Works great
+  - Older Pi + USB Bluetooth adapter (also works)
 
-4. **CLI Tool (`coopctl.py`)** - Command-line interface for:
-   - Manual door control
-   - Quick status checks
-   - Configuration management
-   - Diagnostics
+- **BLE Chicken Coop Door Opener**
+  - Tested with: Chickcozy and similar BLE-enabled doors
+  - Must support Bluetooth Low Energy (BLE)
+  - Battery or solar powered models supported
 
-### How Scheduling Works
+- **Network Connection** (for web access)
+  - WiFi or Ethernet
+  - Only needed for web interface (door control works offline)
 
-**Solar Mode** (Sunrise/Sunset):
-1. You provide your ZIP code
-2. CoopDoor calculates today's sunrise and sunset times
-3. Optional offsets: open 30 min after sunrise, close 30 min before sunset
-4. Schedule updates automatically each day (accounts for seasonal changes)
+### Software
+- Raspberry Pi OS (Debian/Ubuntu based)
+- Python 3.9 or higher
+- Bluetooth support (bluez)
+- Systemd (for service management)
 
-**Fixed Mode** (Set Times):
-1. You set specific times (e.g., 7:00 AM and 8:30 PM)
-2. CoopDoor opens/closes at those times every day
-3. Timezone-aware (handles daylight saving time)
+## 🚀 Installation
 
-**Automation Flow:**
-```
-Daily at 00:30 → Calculate times → Set timers → Open at time 1 → Close at time 2
-```
-
----
-
-## Hardware Requirements
-
-### What You Need
-
-1. **Raspberry Pi** (any model with Bluetooth)
-   - Raspberry Pi 3/4/5 (built-in Bluetooth) ✅ Recommended
-   - Raspberry Pi Zero W/2W (built-in Bluetooth) ✅ Works great
-   - Older Pi + USB Bluetooth adapter (also works)
-
-2. **BLE Chicken Coop Door Opener**
-   - Tested with: Chickcozy, and similar BLE-enabled door openers
-   - Requirements: Must support Bluetooth Low Energy (BLE)
-   - Battery or solar powered
-
-3. **Network Connection** (for web access)
-   - WiFi or Ethernet
-   - Only needed for the web interface (door control still works offline)
-
-### Finding Your Door's BLE MAC Address
-
-Before installation, you need to find your door's Bluetooth MAC address:
+### Step 1: Find Your Door's Bluetooth MAC Address
 
 ```bash
 # Install Bluetooth tools
+sudo apt-get update
 sudo apt-get install bluetooth bluez
 
 # Scan for BLE devices (door must be powered on)
 sudo hcitool lescan
 
-# Look for your door device (usually shows as unknown or with device name)
+# Look for your door device
 # Example output:
 # 00:80:E1:22:EE:F2 (unknown)
 ```
 
-Save this MAC address - you'll need it during setup.
+**Save this MAC address** - you'll need it during setup.
 
----
-
-## Quick Start
-
-### Installation
+### Step 2: Install CoopDoor
 
 ```bash
-# 1. Clone or download CoopDoor
-git clone https://github.com/yourusername/coopdoor.git
+# Clone the repository
+git clone https://github.com/cubandaddy/coopdoor.git
 cd coopdoor
 
-# 2. Run the installer
+# Run the installer
 sudo ./install.sh
 
-# 3. Edit config to set your door's MAC address
-sudo nano /etc/coopdoor/config.json
-# Change "mac": "00:80:E1:22:EE:F2" to your door's address
+# The installer will:
+# ✓ Create the 'coop' user
+# ✓ Set up Python virtual environment
+# ✓ Install all dependencies
+# ✓ Configure systemd services
+# ✓ Start the API server
+```
 
-# 4. Restart the API
+### Step 3: Configure Your Door
+
+```bash
+# Edit the configuration file
+sudo nano /etc/coopdoor/config.json
+
+# Update the MAC address to match your door:
+{
+  "mac": "00:80:E1:22:EE:F2",  # <- Change this to YOUR door's MAC
+  "adapter": "hci0",
+  "connect_timeout": 15,
+  "base_pulses": 14,
+  "pulse_interval": 2.0
+}
+
+# Restart the API
 sudo systemctl restart coopdoor-api
 ```
 
-### First-Time Setup
+### Step 4: Access the Web Interface
 
-1. **Open the web interface:**
-   ```
-   http://your-pi-ip:8080
-   ```
-
-2. **Go to Config tab and set your schedule:**
-   
-   **For Solar Mode:**
-   - Select "Sunrise / Sunset"
-   - Enter your ZIP code (e.g., 33411)
-   - Set offsets if desired (e.g., +30 min sunrise, -30 min sunset)
-   - Click Save
-   
-   **For Fixed Mode:**
-   - Select "Fixed"
-   - Set open time (e.g., 07:00)
-   - Set close time (e.g., 20:30)
-   - Click Save
-
-3. **Click "Apply Now"** to activate the schedule
-
-4. **Test it:**
-   - Go back to Control/Status tab
-   - Click "Open 100%" to fully open the door
-   - Wait a few seconds, then click "Close"
-   - Verify the door responds correctly
-
-### Verify It's Working
-
-```bash
-# Check the schedule is active
-coop-door diag
-
-# See today's calculated times
-curl http://localhost:8080/schedule/preview
-
-# Check systemd timers are set
-systemctl list-timers | grep coopdoor
+Open your browser and navigate to:
+```
+http://[your-pi-ip]:8080
 ```
 
-You should see two timers: one for opening and one for closing.
+## ⚙️ Configuration
 
----
+### Device Configuration (`/etc/coopdoor/config.json`)
 
-## What's New in v3.3.1
-
-### Fixes:
-- ✅ **Status Display Fixed**: Operations now correctly show "Succeeded" instead of "Failed"
-- ✅ **Mode Display Fixed**: Shows "solar" or "fixed" instead of "Unknown"
-- ✅ **Config Save Fixed**: Added unified `/config` endpoint for proper UI configuration saving
-- ✅ **Permission Fix**: Installer creates `/var/lib/coopdoor-backups` with proper ownership
-
-### What Was Fixed:
-1. API now returns `last_event` object for `/open` and `/close` endpoints
-2. `/schedule/preview` includes `mode` field for UI display
-3. "Save failed: Not Found" error resolved with unified config endpoint
-4. Permission denied errors on backup directory resolved
-
-All services run as the `coop` user with proper permissions throughout.
-
----
-
-## Architecture & Design
-
-This is the **DRY (Don't Repeat Yourself)** version of CoopDoor. Instead of embedding all code inside a monolithic installer script, each component exists as a separate file that the installer copies into place.
-
-### Why This Matters
-
-**Before (Monolithic):** 1,100+ lines of installer with embedded code  
-**After (DRY):** ~250 lines of installer + separate component files
-
-Benefits:
-- ✅ Easy to edit individual components
-- ✅ Can test components independently
-- ✅ Better version control (track each file separately)
-- ✅ Single source of truth for each component
-- ✅ Much easier to maintain and customize
-
-## Directory Structure
-
-```
-coopdoor-unified/
-├── install.sh                          # Main installer script
-├── app/                                # Application components
-│   ├── coopd.py                       # BLE daemon (connect to door)
-│   ├── coopctl.py                     # CLI controller
-│   ├── coopdoor_api.py                # FastAPI web server
-│   └── schedule_apply.py              # Schedule management
-├── ui/                                 # Web interface
-│   ├── index.html                     # Main UI
-│   ├── *.png                          # App icons
-│   └── manifest.webmanifest           # PWA manifest
-├── config/                             # Configuration templates
-│   ├── config.json.template           # Device config template
-│   ├── coop-door-cli-shim             # CLI wrapper script
-│   └── coopdoor-apply-sudoers         # Sudoers rule
-└── systemd/                            # Systemd service files
-    ├── coopdoor-api.service           # API service
-    ├── coopdoor-apply-schedule.service # Apply schedule service
-    └── coopdoor-apply-schedule.timer   # Daily timer
+```json
+{
+  "mac": "00:80:E1:22:EE:F2",      // BLE MAC address of your door
+  "adapter": "hci0",                // Bluetooth adapter (usually hci0)
+  "connect_timeout": 15,            // Connection timeout in seconds
+  "base_pulses": 14,                // Number of pulses for 100% open
+  "pulse_interval": 2.0,            // Seconds between pulses
+  "home_before_open": false,        // Close before opening (calibration)
+  "min_pause_after_action": 1.0     // Pause after operations (seconds)
+}
 ```
 
-## Why This Is Better (DRY Principles)
+### Automation Configuration (`/etc/coopdoor/automation.json`)
 
-### Before (Monolithic Installer):
-- **1,100+ lines** of installer script with everything embedded
-- Hard to edit individual components
-- Duplicate code between installer and running system
-- Can't test components independently
-- Version control sees one giant file
-
-### After (DRY Components):
-- **~250 lines** of installer script (just copies files)
-- Each component in its own file
-- Easy to edit: change `coopd.py` → done!
-- Can test each component separately
-- Version control tracks each file individually
-- **True single source of truth** for each component
-
----
-
-## Detailed Installation
-
-The installer automatically sets up everything you need. Here's what happens:
-1. Check prerequisites
-2. Create the `coop` user if needed
-3. Set up Python virtual environment
-4. Copy all application files
-5. Install systemd services
-6. Configure everything
-7. Start the services
-
-### What Gets Installed
-
-```
-/opt/coopdoor/              # Application directory
-├── .venv/                  # Python virtual environment
-├── coopd.py                # ← Copied from app/coopd.py
-├── coopctl.py              # ← Copied from app/coopctl.py
-├── coopdoor_api.py         # ← Copied from app/coopdoor_api.py
-├── schedule_apply.py       # ← Copied from app/schedule_apply.py
-└── ui/                     # ← Copied from ui/
-    ├── index.html
-    └── ...
-
-/etc/coopdoor/              # Configuration
-├── config.json             # ← Generated from template + defaults
-└── automation.json         # Created on first config save
-
-/usr/local/bin/
-└── coop-door               # ← Copied from config/coop-door-cli-shim
-
-/etc/systemd/system/        # Services
-├── coopdoor-api.service                # ← Copied from systemd/
-├── coopdoor-apply-schedule.service     # ← Copied from systemd/
-└── coopdoor-apply-schedule.timer       # ← Copied from systemd/
-
-/etc/sudoers.d/
-└── coopdoor-apply          # ← Copied from config/coopdoor-apply-sudoers
-```
-
-## Customization
-
-### Changing Defaults
-
-Edit the top of `install.sh`:
-```bash
-readonly MAC_DEFAULT="00:80:E1:22:EE:F2"      # Your BLE MAC address
-readonly ADAPTER_DEFAULT="hci0"                # Bluetooth adapter
-readonly CONNECT_TIMEOUT_DEFAULT=15            # Connection timeout
-readonly BASE_PULSES_DEFAULT=14                # Pulses for 100% open
-readonly PULSE_INTERVAL_DEFAULT=2.0            # Seconds between pulses
-```
-
-### Modifying Components
-
-Want to change how the daemon works?
-1. Edit `app/coopd.py`
-2. Run `sudo ./install.sh` again
-3. Done! New version copied to `/opt/coopdoor/`
-
-Want to change the UI?
-1. Edit `ui/index.html`
-2. Run `sudo ./install.sh` again
-3. Refresh browser!
-
-### Testing Components
-
-Since each component is separate, you can test them independently:
-
-```bash
-# Test the daemon directly
-cd app
-python3 coopd.py --mac XX:XX:XX:XX:XX:XX --adapter hci0 --sock /tmp/test.sock
-
-# Test the CLI controller
-cd app
-python3 coopctl.py status
-
-# Test the API server
-cd app
-uvicorn coopdoor_api:app --reload
-```
-
-## Daily Usage
-
-Once configured, CoopDoor runs automatically. You don't need to do anything!
-
-### Automatic Operation
-
-**Every day at 00:30 (12:30 AM):**
-1. CoopDoor calculates today's open/close times
-2. Sets systemd timers for those times
-3. Door opens automatically at calculated time
-4. Door closes automatically at calculated time
-
-**You can monitor this via:**
-- Web UI: Check "Last Action" to see latest operation
-- Logs: `journalctl -u coopdoor-apply-schedule -f`
-- CLI: `coop-door diag`
-
-### Manual Control
-
-#### Web Interface
-
-Browse to: `http://[raspberry-pi-ip]:8080/`
-
-**Control Tab:**
-- Click preset buttons: 25%, 50%, 75%, 100%
-- Click "Close" to close the door
-- Click "Status" to refresh connection status
-- View last action and automation schedule
-
-**Config Tab:**
-- Switch between Fixed and Solar modes
-- Adjust times and offsets
-- Save configuration
-- Click "Apply Now" to activate immediately
-
-**Diagnostics Tab:**
-- View real-time logs
-- Check connection status
-- See configuration details
-
-#### Command Line
-
-```bash
-coop-door status          # Check connection status
-coop-door connect         # Connect to device
-coop-door disconnect      # Disconnect
-coop-door open 25         # Open to 25%
-coop-door open 100        # Open fully
-coop-door close           # Close door
-coop-door config          # Show config
-coop-door config --set mac=XX:XX:XX:XX:XX:XX
-coop-door diag            # Show diagnostics
-coop-door diag --verbose  # Detailed diagnostics
-```
-
-### When to Use Manual Control
-
-**Typical scenarios:**
-- **Testing:** Verify door works after initial setup
-- **Override:** Need door open/closed outside schedule (cleaning, sick chicken, etc.)
-- **Maintenance:** Adjusting door position, checking battery
-- **Emergency:** Weather event, predator in area, need immediate control
-
-**For daily operation:** Just let it run automatically! The schedule handles everything.
-
-### Understanding Door Percentages
-
-The door uses a "pulse" system to control opening:
-- **Each pulse** opens the door by approximately 7% (14 pulses = 100%)
-- **25%** = ~4 pulses = Door opens slightly (chicks only)
-- **50%** = ~7 pulses = Door half open
-- **75%** = ~10 pulses = Door mostly open
-- **100%** = 14 pulses = Fully open (all chickens)
-
-**Pro tip:** Set `open_percent` cap in config to limit maximum opening (e.g., 75% for smaller chickens).
-
----
-
-## Web Interface Features
-- Real-time connection status
-- Manual control with presets (25%, 50%, 75%, 100%)
-- Custom percentage input
-- Automation scheduling:
-  - **Fixed Mode**: Set specific times (e.g., 7:00 AM / 8:30 PM)
-  - **Solar Mode**: Automatic sunrise/sunset with offsets
-- Schedule preview
-- Full diagnostics
-
----
-
-## Common Use Cases
-
-### Scenario 1: Basic Sunrise/Sunset (Most Common)
-
-**Goal:** Door opens at sunrise, closes at sunset. Simple and natural.
-
-**Configuration:**
+#### Solar Mode (Sunrise/Sunset)
 ```json
 {
   "mode": "solar",
   "zip": "33411",
   "country": "US",
   "solar": {
-    "sunrise_offset_min": 0,
-    "sunset_offset_min": 0
+    "sunrise_offset_min": 30,     // Open 30 min AFTER sunrise
+    "sunset_offset_min": -30      // Close 30 min BEFORE sunset
   },
-  "open_percent": 100
+  "timezone": "America/New_York",
+  "open_percent": 100             // Maximum opening percentage
 }
 ```
 
-**When to use:** You want your chickens to have daylight hours available automatically.
-
----
-
-### Scenario 2: Late Open, Early Close (Maximum Safety)
-
-**Goal:** Open 30 min after sunrise (when it's fully light), close 30 min before sunset (before dusk predators).
-
-**Configuration:**
-```json
-{
-  "mode": "solar",
-  "zip": "33411",
-  "solar": {
-    "sunrise_offset_min": 30,    ← Opens AFTER sunrise
-    "sunset_offset_min": -30     ← Closes BEFORE sunset
-  },
-  "open_percent": 100
-}
-```
-
-**When to use:** Extra predator protection, or if your run isn't fully secure at dusk.
-
----
-
-### Scenario 3: Work Schedule (Fixed Times)
-
-**Goal:** Door opens before you leave for work (7 AM), closes when you're home (7 PM).
-
-**Configuration:**
+#### Fixed Time Mode
 ```json
 {
   "mode": "fixed",
   "fixed": {
-    "open": "07:00",
-    "close": "19:00"
+    "open": "07:00",              // Open at 7:00 AM
+    "close": "20:30"              // Close at 8:30 PM
   },
   "timezone": "America/New_York",
   "open_percent": 100
 }
 ```
 
-**When to use:** You prefer consistent times regardless of season, or you have a specific routine.
+## 💻 Usage
 
----
+### 🌐 Web Interface
 
-### Scenario 4: Partial Opening for Small Birds
+Access at `http://[your-pi-ip]:8080`
 
-**Goal:** Limit door opening to 75% (younger/smaller chickens).
+#### Control Tab
+- **Status Display**: Real-time connection status
+- **Quick Controls**: Open 25%, 50%, 75%, 100%, or Close
+- **Last Action**: View recent operations
+- **Schedule Info**: Current automation schedule
 
-**Configuration:**
-```json
-{
-  "mode": "solar",
-  "zip": "33411",
-  "solar": {
-    "sunrise_offset_min": 0,
-    "sunset_offset_min": 0
-  },
-  "open_percent": 75              ← Maximum opening limited
-}
-```
+#### Config Tab
+- **Mode Selection**: Choose between Solar or Fixed scheduling
+- **Solar Settings**: ZIP code and sunrise/sunset offsets
+- **Fixed Settings**: Specific open/close times
+- **Save & Apply**: Save configuration and apply immediately
 
-**When to use:** Chicks, bantams, or you want to restrict how far the door opens.
+#### Diagnostics Tab
+- **System Logs**: View real-time logs
+- **Connection Status**: Bluetooth connection details
+- **Configuration**: Current settings display
+- **Timer Status**: Systemd timer information
 
----
-
-### Scenario 5: Winter Hours (Late Open, Early Close)
-
-**Goal:** Fixed times that work well in winter when daylight is limited.
-
-**Configuration:**
-```json
-{
-  "mode": "fixed",
-  "fixed": {
-    "open": "08:00",              ← Later open (it's dark at 7 AM)
-    "close": "17:00"              ← Earlier close (dark by 5 PM)
-  },
-  "timezone": "America/New_York",
-  "open_percent": 100
-}
-```
-
-**When to use:** You prefer manual seasonal adjustments over solar automation.
-
----
-
-### API Endpoints
+### 🖥 Command Line Interface
 
 ```bash
-# Health check
-curl http://localhost:8080/healthz
+# Basic Commands
+coop-door status                  # Check connection status
+coop-door connect                 # Connect to device
+coop-door disconnect              # Disconnect from device
 
-# Get status
+# Door Control
+coop-door open 25                 # Open to 25%
+coop-door open 100                # Open fully
+coop-door close                   # Close door
+
+# Configuration
+coop-door config                  # Show current config
+coop-door config --set mac=XX:XX:XX:XX:XX:XX  # Update MAC address
+
+# Diagnostics
+coop-door diag                    # Show diagnostics
+coop-door diag --verbose          # Detailed diagnostics
+```
+
+## 🔌 API Reference
+
+### Core Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/healthz` | Health check |
+| GET | `/status` | Get connection and door status |
+| POST | `/open?percent=75` | Open door to specified percentage |
+| POST | `/close` | Close door |
+| GET | `/config` | Get device configuration |
+| PUT | `/config` | Update device configuration |
+| GET | `/automation` | Get automation settings |
+| PUT | `/automation` | Update automation settings |
+| POST | `/automation/apply` | Apply schedule immediately |
+| GET | `/schedule/preview` | Preview calculated schedule |
+| GET | `/logs/{service}` | Get service logs |
+
+### Example API Calls
+
+```bash
+# Check status
 curl http://localhost:8080/status
 
 # Open door to 75%
 curl -X POST http://localhost:8080/open?percent=75
 
-# Close door
-curl -X POST http://localhost:8080/close
-
-# Get automation config
-curl http://localhost:8080/automation
-
-# Update config (Fixed mode)
-curl -X PUT http://localhost:8080/automation \
-  -H "Content-Type: application/json" \
-  -d '{
-    "mode": "fixed",
-    "fixed": {"open": "07:00", "close": "20:30"},
-    "timezone": "America/New_York",
-    "open_percent": 100
-  }'
-
-# Update config (Solar mode)
+# Update to solar mode
 curl -X PUT http://localhost:8080/automation \
   -H "Content-Type: application/json" \
   -d '{
@@ -599,204 +298,132 @@ curl -X PUT http://localhost:8080/automation \
     "timezone": "America/New_York",
     "open_percent": 100
   }'
-
-# Apply schedule now
-curl -X POST http://localhost:8080/automation/apply
-
-# Preview schedule
-curl http://localhost:8080/schedule/preview
 ```
 
-## Single-Mode Enforcement
+## 📅 Scheduling Examples
 
-The UI and API now enforce that **only one mode** (solar OR fixed) is active:
+### Example 1: Basic Solar Mode
+Opens at sunrise, closes at sunset. Perfect for natural chicken behavior.
 
-### How It Works:
-
-1. **UI Level**: Radio buttons show only one panel at a time
-2. **Save Logic**: Only the selected mode's data is sent to the API
-3. **Validation**: Solar mode requires ZIP code; Fixed mode requires times
-4. **Storage**: Config file only contains active mode's settings
-
-### Example:
-
-**Fixed Mode Config:**
-```json
-{
-  "mode": "fixed",
-  "fixed": {"open": "07:00", "close": "20:30"},
-  "timezone": "America/New_York",
-  "open_percent": 100
-}
-```
-Note: No `solar` key exists
-
-**Solar Mode Config:**
 ```json
 {
   "mode": "solar",
-  "solar": {"sunrise_offset_min": 30, "sunset_offset_min": -30},
-  "location": {"lat": 26.7, "lon": -80.1, "zip": "33411", "country": "US"},
-  "timezone": "America/New_York",
-  "open_percent": 100
+  "zip": "33411",
+  "solar": {
+    "sunrise_offset_min": 0,
+    "sunset_offset_min": 0
+  }
 }
 ```
-Note: No `fixed` key exists
 
-## System Management
-
-### Check Services
-
-```bash
-# API service
-systemctl status coopdoor-api
-
-# Schedule timer
-systemctl status coopdoor-apply-schedule.timer
-
-# View all timers
-systemctl list-timers | grep coopdoor
-```
-
-### View Logs
-
-```bash
-# API logs
-journalctl -u coopdoor-api -f
-
-# Schedule apply logs
-journalctl -u coopdoor-apply-schedule -f
-
-# Daemon logs (CLI operations)
-tail -f ~/.cache/coopdoor/coopd.log
-```
-
-### Restart Services
-
-```bash
-# Restart API
-sudo systemctl restart coopdoor-api
-
-# Manually apply schedule
-sudo systemctl start coopdoor-apply-schedule.service
-```
-
-## Development Workflow
-
-### Making Changes
-
-1. **Edit the component file:**
-   ```bash
-   nano app/coopdoor_api.py
-   ```
-
-2. **Test locally (optional):**
-   ```bash
-   cd app
-   uvicorn coopdoor_api:app --reload
-   ```
-
-3. **Deploy the change:**
-   ```bash
-   sudo ./install.sh
-   sudo systemctl restart coopdoor-api
-   ```
-
-### Version Control
-
-Each component can be tracked separately:
-```bash
-git add app/coopd.py
-git commit -m "Fix: Handle connection timeout better"
-
-git add ui/index.html
-git commit -m "UI: Add dark mode toggle"
-```
-
-## Advantages Over Monolithic Installer
-
-| Aspect | Monolithic | DRY Edition |
-|--------|-----------|-------------|
-| **Installer size** | 1,100+ lines | ~250 lines |
-| **Edit a component** | Find heredoc in 1,100 lines | Edit one file |
-| **Test a component** | Extract from heredoc first | Just run the file |
-| **Version control** | One giant commit | Granular commits |
-| **Code reuse** | Duplicate (embedded + runtime) | Single source |
-| **Maintainability** | Hard | Easy |
-| **Customization** | Edit installer script | Edit component files |
-| **Debugging** | Hard to isolate | Test each component |
-
-## Configuration Reference
-
-### Device Settings (`/etc/coopdoor/config.json`)
+### Example 2: Offset Solar Mode
+Opens 30 min after sunrise (fully light), closes 30 min before sunset (dusk protection).
 
 ```json
 {
-  "mac": "00:80:E1:22:EE:F2",           // BLE MAC address
-  "adapter": "hci0",                     // Bluetooth adapter
-  "connect_timeout": 15,                 // Seconds to wait for connection
-  "base_pulses": 14,                     // Pulses for 100% open
-  "pulse_interval": 2.0,                 // Seconds between pulses
-  "home_before_open": false,             // Close before opening (calibration)
-  "min_pause_after_action": 1.0          // Pause after operations (seconds)
+  "mode": "solar",
+  "solar": {
+    "sunrise_offset_min": 30,
+    "sunset_offset_min": -30
+  }
 }
 ```
 
-### Automation Settings (`/etc/coopdoor/automation.json`)
+### Example 3: Work Schedule
+Fixed times that fit your schedule - opens before work, closes when you're home.
 
-**Fixed Mode:**
 ```json
 {
   "mode": "fixed",
   "fixed": {
     "open": "07:00",
-    "close": "20:30"
-  },
-  "timezone": "America/New_York",
-  "open_percent": 100
+    "close": "19:00"
+  }
 }
 ```
 
-**Solar Mode:**
+### Example 4: Limited Opening
+Perfect for smaller chickens or chicks - limits door to 75% open.
+
 ```json
 {
-  "mode": "solar",
-  "solar": {
-    "sunrise_offset_min": 30,      // Open 30 min AFTER sunrise
-    "sunset_offset_min": -30       // Close 30 min BEFORE sunset
-  },
-  "location": {
-    "lat": 26.7,
-    "lon": -80.1,
-    "zip": "33411",
-    "country": "US"
-  },
-  "timezone": "America/New_York",
-  "open_percent": 100               // 0-100, or 0 for no cap
+  "open_percent": 75
 }
 ```
 
-## Troubleshooting
+## 📂 Project Structure
 
-### Service won't start
-```bash
-# Check logs
-journalctl -u coopdoor-api -n 50
-
-# Check Python environment
-/opt/coopdoor/.venv/bin/python3 --version
-
-# Reinstall dependencies
-sudo -u coop /opt/coopdoor/.venv/bin/pip install --upgrade fastapi uvicorn astral pgeocode
+```
+coopdoor/
+├── install.sh                    # Main installer script
+├── README.md                     # This file
+├── LICENSE                       # License information
+│
+├── app/                          # Application components
+│   ├── coopd.py                  # BLE daemon service
+│   ├── coopctl.py                # CLI controller
+│   ├── coopdoor_api.py           # FastAPI web server
+│   └── schedule_apply.py         # Schedule management
+│
+├── ui/                           # Web interface
+│   ├── index.html                # Main UI file
+│   ├── manifest.webmanifest      # PWA manifest
+│   └── *.png                     # App icons
+│
+├── config/                       # Configuration templates
+│   ├── config.json.template      # Device config template
+│   ├── coop-door-cli-shim        # CLI wrapper script
+│   └── coopdoor-apply-sudoers    # Sudoers rules
+│
+├── systemd/                      # Service definitions
+│   ├── coopdoor-api.service      # API service
+│   ├── coopdoor-apply-schedule.service  # Schedule service
+│   └── coopdoor-apply-schedule.timer    # Daily timer
+│
+└── scripts/                      # Management utilities
+    ├── install.sh                # Installation script
+    ├── uninstall.sh              # Uninstallation script
+    ├── backup.sh                 # Configuration backup
+    ├── restore.sh                # Configuration restore
+    └── config.sh                 # Shared configuration
 ```
 
-### Can't connect to device
-```bash
-# Check Bluetooth
-hciconfig
-systemctl status bluetooth
+### Installed Locations
 
-# Test connection
+```
+/opt/coopdoor/                    # Application directory
+├── .venv/                        # Python virtual environment
+├── coopd.py                      # BLE daemon
+├── coopctl.py                    # CLI controller
+├── coopdoor_api.py               # API server
+├── schedule_apply.py             # Scheduler
+└── ui/                           # Web interface files
+
+/etc/coopdoor/                    # Configuration
+├── config.json                   # Device settings
+└── automation.json               # Schedule settings
+
+/var/lib/coopdoor-backups/        # Backup directory
+
+/usr/local/bin/
+└── coop-door                     # CLI command
+
+/etc/systemd/system/              # System services
+├── coopdoor-api.service
+├── coopdoor-apply-schedule.service
+└── coopdoor-apply-schedule.timer
+```
+
+## 🔧 Troubleshooting
+
+### Connection Issues
+
+```bash
+# Check Bluetooth is working
+hciconfig
+sudo systemctl status bluetooth
+
+# Test manual connection
 coop-door connect
 coop-door diag --verbose
 
@@ -804,19 +431,102 @@ coop-door diag --verbose
 tail -f ~/.cache/coopdoor/coopd.log
 ```
 
-### Schedule not applying
+### API Issues
+
 ```bash
-# Manually apply
-sudo systemctl start coopdoor-apply-schedule.service
+# Check API service
+systemctl status coopdoor-api
+journalctl -u coopdoor-api -n 50
 
-# Check timer
-systemctl list-timers | grep coopdoor
+# Restart API
+sudo systemctl restart coopdoor-api
 
-# View logs
-journalctl -u coopdoor-apply-schedule -n 20
+# Check Python environment
+/opt/coopdoor/.venv/bin/python3 --version
+
+# Reinstall dependencies if needed
+sudo -u coop /opt/coopdoor/.venv/bin/pip install --upgrade fastapi uvicorn astral pgeocode
 ```
 
-## Authentication (Optional)
+### Schedule Issues
+
+```bash
+# Check schedule timer
+systemctl status coopdoor-apply-schedule.timer
+systemctl list-timers | grep coopdoor
+
+# Manually apply schedule
+sudo systemctl start coopdoor-apply-schedule.service
+
+# View schedule logs
+journalctl -u coopdoor-apply-schedule -n 20
+
+# Preview current schedule
+curl http://localhost:8080/schedule/preview
+```
+
+### Common Issues & Solutions
+
+| Issue | Solution |
+|-------|----------|
+| "Connection timeout" | 1. Check door has power<br>2. Verify MAC address<br>3. Move Pi closer to door |
+| "Permission denied" | Run commands with `sudo` or check file ownership |
+| "Schedule not working" | Check timer is enabled: `systemctl enable coopdoor-apply-schedule.timer` |
+| "Web UI not loading" | Verify API is running: `systemctl status coopdoor-api` |
+| "Door not responding" | 1. Check battery level<br>2. Verify BLE connection<br>3. Try manual control |
+
+## 🛠 Management Scripts
+
+All management scripts are located in the `scripts/` directory:
+
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `install.sh` | Install CoopDoor | `sudo ./scripts/install.sh` |
+| `uninstall.sh` | Remove CoopDoor | `sudo ./scripts/uninstall.sh [--keep-config]` |
+| `backup.sh` | Backup configuration | `sudo ./scripts/backup.sh` |
+| `restore.sh` | Restore from backup | `sudo ./scripts/restore.sh <backup-file>` |
+| `config.sh` | Shared configuration | (sourced by other scripts) |
+
+### Examples
+
+```bash
+# Create backup before making changes
+sudo ./scripts/backup.sh
+
+# Restore from backup if needed
+sudo ./scripts/restore.sh ~/coopdoor-backups/coopdoor-backup-2025-10-30.tar.gz
+
+# Uninstall but keep configuration
+sudo ./scripts/uninstall.sh --keep-config
+
+# Get help for any script
+sudo ./scripts/install.sh --help
+```
+
+## 👨‍💻 Development
+
+### Modifying Components
+
+The DRY (Don't Repeat Yourself) architecture makes development easy:
+
+1. **Edit the component file**:
+   ```bash
+   nano app/coopdoor_api.py
+   ```
+
+2. **Test locally** (optional):
+   ```bash
+   cd app
+   /opt/coopdoor/.venv/bin/python3 coopdoor_api.py
+   ```
+
+3. **Deploy changes**:
+   ```bash
+   sudo ./install.sh
+   sudo systemctl restart coopdoor-api
+   ```
+
+### Adding Authentication
 
 To require bearer token authentication:
 
@@ -833,13 +543,27 @@ To require bearer token authentication:
 3. Use with requests:
    ```bash
    curl -H "Authorization: Bearer your-secret-token-here" \
-     http://localhost:8080/status
+        http://localhost:8080/status
    ```
 
-## Uninstallation
+### Custom Door Configuration
+
+Edit default values in `install.sh`:
 
 ```bash
-# Stop services
+readonly MAC_DEFAULT="00:80:E1:22:EE:F2"  # Your door's MAC
+readonly ADAPTER_DEFAULT="hci0"            # Bluetooth adapter
+readonly CONNECT_TIMEOUT_DEFAULT=15        # Connection timeout
+readonly BASE_PULSES_DEFAULT=14           # Pulses for 100% open
+readonly PULSE_INTERVAL_DEFAULT=2.0       # Seconds between pulses
+```
+
+## 🗑 Uninstallation
+
+To completely remove CoopDoor:
+
+```bash
+# Stop and disable services
 sudo systemctl stop coopdoor-api
 sudo systemctl disable coopdoor-api
 sudo systemctl stop coopdoor-apply-schedule.timer
@@ -858,48 +582,76 @@ sudo systemctl daemon-reload
 
 # Optionally remove user
 sudo userdel coop
+
+# Optionally remove backups
+sudo rm -rf /var/lib/coopdoor-backups
 ```
 
-## Credits
-
-- Original install.sh and install_web.sh authors
-- DRY unified installer created 2025-10-26
-- Single-mode enforcement added
-- Component separation implemented
-
-## License
-
-Same as the original CoopDoor project
-
-## Scripts Directory
-
-All management scripts are in the `scripts/` directory:
-
-| Script | Purpose |
-|--------|---------|
-| **install.sh** | Install CoopDoor |
-| **uninstall.sh** | Remove CoopDoor |
-| **backup.sh** | Backup configuration |
-| **restore.sh** | Restore from backup |
-| **config.sh** | Shared configuration (sourced by all scripts) |
-
-See [scripts/README.md](scripts/README.md) for detailed documentation.
-
-### Quick Examples
-
+Or use the uninstall script:
 ```bash
-# Install
-sudo ./scripts/install.sh
-
-# Backup before changes
-sudo ./scripts/backup.sh
-
-# Restore if needed
-sudo ./scripts/restore.sh ~/coopdoor-backups/coopdoor-backup-*.tar.gz
-
-# Uninstall (keep config)
-sudo ./scripts/uninstall.sh --keep-config
+sudo ./scripts/uninstall.sh
 ```
 
-All scripts support `--help` for full usage information.
+## 📈 Recent Updates
 
+### Version 2.0 - DRY Edition (2025-10-26)
+- ✅ **Modular Architecture**: Separated components from monolithic installer
+- ✅ **Fixed Status Display**: Operations now show "Succeeded" instead of "Failed"
+- ✅ **Mode Display Fixed**: Shows "solar" or "fixed" instead of "Unknown"
+- ✅ **Config Save Fixed**: Unified `/config` endpoint for proper UI configuration
+- ✅ **Permission Fixes**: Proper ownership for backup directory
+- ✅ **Single-Mode Enforcement**: Only one scheduling mode active at a time
+- ✅ **Enhanced Management Scripts**: Backup/restore functionality
+
+### Benefits of DRY Architecture
+
+| Aspect | Monolithic | DRY Edition |
+|--------|------------|-------------|
+| **Installer size** | 1,100+ lines | ~250 lines |
+| **Edit component** | Find in 1,100 lines | Edit one file |
+| **Test component** | Extract from heredoc | Just run the file |
+| **Version control** | One giant commit | Granular commits |
+| **Code reuse** | Duplicated | Single source |
+| **Maintainability** | Hard | Easy |
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Areas for Contribution
+- Additional door model support
+- Enhanced scheduling options
+- Mobile app development
+- Weather-based scheduling
+- Multi-door support
+- Additional sensor integration
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Original CoopDoor project authors
+- Raspberry Pi Foundation
+- FastAPI framework developers
+- The backyard chicken community
+
+## 📞 Support
+
+For issues, questions, or suggestions:
+- Open an issue on [GitHub](https://github.com/cubandaddy/coopdoor/issues)
+- Check existing issues for solutions
+- Review the [troubleshooting section](#-troubleshooting)
+
+---
+
+**Happy Chickening! 🐔**
+
+*CoopDoor - Because your chickens deserve automation too!*
