@@ -5,7 +5,10 @@ schedule_apply.py - Apply automation schedule by creating systemd timers
 This script reads automation config and creates systemd timers for 
 scheduled door open/close operations.
 
-PATCHED VERSION: Includes sudo rm fix for proper file deletion permissions
+FIXED VERSION: 
+- Addresses permission issues with sudo
+- Fixes midnight timer bug by validating future times
+- Proper systemd-run calendar format
 """
 
 import json
@@ -110,135 +113,286 @@ def calculate_solar_times(config):
 
 
 def remove_existing_timers():
-    """Remove existing timer and service files"""
+    """Remove existing timer and service files - FIXED VERSION with sudo"""
+    print("Removing existing timers...")
+    
+    # Stop and disable any running timers first
+    for timer_name in ["coopdoor-open", "coopdoor-close"]:
+        # Try to stop the timer unit (may not exist, that's ok)
+        subprocess.run(
+            ["sudo", "systemctl", "stop", f"{timer_name}.timer"],
+            capture_output=True,
+            check=False
+        )
+        subprocess.run(
+            ["sudo", "systemctl", "stop", f"{timer_name}.service"],
+            capture_output=True,
+            check=False
+        )
+    
+    # Remove timer and service files from /etc/systemd/system/
     timer_file = "/etc/systemd/system/coopdoor-open.timer"
     service_file = "/etc/systemd/system/coopdoor-open.service"
+    close_timer = "/etc/systemd/system/coopdoor-close.timer"
+    close_service = "/etc/systemd/system/coopdoor-close.service"
     
-    for file in [timer_file, service_file]:
+    for file in [timer_file, service_file, close_timer, close_service]:
         if os.path.exists(file):
             try:
-                # Stop and disable if it's a timer
-                if file.endswith('.timer'):
-                    subprocess.run(["systemctl", "stop", os.path.basename(file)], check=False)
-                    subprocess.run(["systemctl", "disable", os.path.basename(file)], check=False)
-                
-                # Use sudo to remove the file (requires proper permissions)
-                subprocess.run(["sudo", "rm", "-f", file], check=True)
+                print(f"  Removing {file}")
+                result = subprocess.run(
+                    ["sudo", "rm", "-f", file],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
             except subprocess.CalledProcessError as e:
-                print(f"Error removing {file}: {e}")
+                print(f"  Warning: Could not remove {file}: {e.stderr}")
     
-    # Reload systemd daemon with sudo
-    subprocess.run(["sudo", "systemctl", "daemon-reload"], check=False)
+    # Also clean up any transient timers that systemd-run might have created
+    print("  Cleaning up transient timers...")
+    result = subprocess.run(
+        ["systemctl", "list-units", "--all", "--no-pager"],
+        capture_output=True,
+        text=True
+    )
+    for line in result.stdout.split('\n'):
+        if 'coopdoor-open' in line or 'coopdoor-close' in line:
+            unit_name = line.split()[0]
+            print(f"  Stopping transient unit: {unit_name}")
+            subprocess.run(
+                ["sudo", "systemctl", "stop", unit_name],
+                capture_output=True,
+                check=False
+            )
+    
+    # Reload systemd daemon
+    print("  Reloading systemd daemon...")
+    subprocess.run(
+        ["sudo", "systemctl", "daemon-reload"],
+        check=False
+    )
+    
+    print("✓ Cleanup complete")
 
 
-def create_timer(timer_name, when, command):
-    """Create a systemd timer using systemd-run"""
-    # Use systemd-run to create a transient timer
-    # This runs as root via sudo but executes command as coop user
-    result = subprocess.run([
-        "sudo", "systemd-run",
-        "--uid=coop",
-        f"--on-calendar={when}",
-        "--timer-property=RemainAfterElapse=no",
-        "--unit", timer_name,
-        *command.split()
-    ], capture_output=True, text=True)
+def create_timer(timer_name, when_dt, command, now):
+    """
+    Create a systemd timer using systemd-run
     
-    if result.returncode != 0:
-        print(f"Error creating timer: {result.stderr}")
+    CRITICAL FIX: Validates that the time is in the future before creating timer
+    and uses proper systemd calendar format.
+    
+    Args:
+        timer_name: Name for the timer unit
+        when_dt: datetime object for when to run (must be timezone-aware)
+        command: Full command string to execute
+        now: Current datetime (timezone-aware) for validation
+    
+    Returns:
+        True if timer created successfully, False otherwise
+    """
+    
+    # CRITICAL: Validate time is in the future
+    if when_dt <= now:
+        print(f"  ⚠ Skipping {timer_name}: time {when_dt.strftime('%H:%M:%S')} has already passed")
         return False
     
-    print(f"Created timer: {timer_name} at {when}")
-    return True
+    time_until = when_dt - now
+    hours = time_until.total_seconds() / 3600
+    
+    # Additional safety: don't create timers for times more than 24 hours away
+    if hours > 24:
+        print(f"  ⚠ Skipping {timer_name}: time is more than 24 hours away")
+        return False
+    
+    # Format for systemd OnCalendar: "YYYY-MM-DD HH:MM:SS"
+    # This is the ISO format that systemd expects
+    when_str = when_dt.strftime("%Y-%m-%d %H:%M:%S")
+    
+    print(f"  Creating timer: {timer_name}")
+    print(f"    Scheduled for: {when_str} (in {hours:.1f} hours)")
+    print(f"    Command: {command}")
+    
+    # Use systemd-run to create a transient timer
+    # --uid=coop ensures command runs as coop user
+    # --on-calendar specifies when to run
+    # --timer-property=RemainAfterElapse=no cleans up after execution
+    cmd_args = [
+        "sudo", "systemd-run",
+        "--uid=coop",
+        f"--on-calendar={when_str}",
+        "--timer-property=RemainAfterElapse=no",
+        f"--unit={timer_name}"
+    ]
+    
+    # Add the actual command to execute
+    cmd_args.extend(command.split())
+    
+    try:
+        result = subprocess.run(
+            cmd_args,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print(f"  ✓ Timer created successfully")
+        if result.stdout:
+            print(f"    {result.stdout.strip()}")
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"  ✗ Error creating timer: {e.stderr}")
+        return False
 
 
 def apply_schedule(config):
-    """Apply the automation schedule"""
+    """Apply the automation schedule - FULLY FIXED VERSION"""
     mode = config.get('mode', 'solar')
     tz_name = config.get('timezone', 'America/New_York')
     
+    # Get timezone
     try:
         tz = pytz.timezone(tz_name)
     except:
         print(f"Invalid timezone: {tz_name}, using America/New_York")
         tz = pytz.timezone('America/New_York')
     
+    # Get current time - CRITICAL: must be timezone-aware
     now = datetime.now(tz)
+    
+    print(f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"Mode: {mode}")
     
     # Calculate times based on mode
     if mode == 'solar':
+        print("Calculating solar times...")
         open_time, close_time = calculate_solar_times(config)
         if open_time is None:
-            print("Failed to calculate solar times")
+            print("✗ Failed to calculate solar times")
             return False
     else:  # fixed mode
+        print("Using fixed times...")
         fixed = config.get('fixed', {})
         open_str = fixed.get('open', '07:00')
         close_str = fixed.get('close', '20:00')
         
         # Parse times
-        open_t = datetime.strptime(open_str, '%H:%M').time()
-        close_t = datetime.strptime(close_str, '%H:%M').time()
+        try:
+            open_t = datetime.strptime(open_str, '%H:%M').time()
+            close_t = datetime.strptime(close_str, '%H:%M').time()
+        except ValueError as e:
+            print(f"✗ Error parsing times: {e}")
+            return False
         
-        # Create datetime objects for today
+        # Create datetime objects for today - MUST be timezone-aware
         open_time = tz.localize(datetime.combine(now.date(), open_t))
         close_time = tz.localize(datetime.combine(now.date(), close_t))
+        
+        # If open time has passed today, schedule for tomorrow
+        if open_time <= now:
+            print(f"  Open time {open_str} has passed, scheduling for tomorrow")
+            open_time = open_time + timedelta(days=1)
+        
+        # If close time has passed today, schedule for tomorrow
+        if close_time <= now:
+            print(f"  Close time {close_str} has passed, scheduling for tomorrow")
+            close_time = close_time + timedelta(days=1)
     
     # Get open percentage
     open_percent = config.get('open_percent', 100)
     if open_percent == 0:
         open_percent = 100  # 0 means no cap
     
-    print(f"Mode: {mode}")
-    print(f"Calculated times for today:")
-    print(f"  Open:  {open_time.strftime('%Y-%m-%d %H:%M %Z')}")
-    print(f"  Close: {close_time.strftime('%Y-%m-%d %H:%M %Z')}")
+    print(f"\nSchedule for today:")
+    print(f"  Open:  {open_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"  Close: {close_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"  Open %: {open_percent}")
+    
+    # CRITICAL VALIDATION: Ensure times are timezone-aware
+    if open_time.tzinfo is None or close_time.tzinfo is None:
+        print("✗ ERROR: Times are not timezone-aware!")
+        return False
     
     # Remove existing timers
-    print("Removing existing timers...")
     remove_existing_timers()
     
-    # Create new timers if times are in the future
-    if open_time > now:
-        when = open_time.strftime('%Y-%m-%d %H:%M:%S')
-        create_timer(
-            "coopdoor-open",
-            when,
-            f"{COOP_DOOR_CMD} open {open_percent}"
-        )
-    else:
-        print(f"Skipping open timer (time has passed: {open_time.strftime('%H:%M')})")
+    # Create new timers - passing now for validation
+    print("\nCreating new timers...")
+    open_created = create_timer(
+        "coopdoor-open",
+        open_time,
+        f"{COOP_DOOR_CMD} open {open_percent}",
+        now
+    )
     
-    if close_time > now:
-        when = close_time.strftime('%Y-%m-%d %H:%M:%S')
-        create_timer(
-            "coopdoor-close",
-            when,
-            f"{COOP_DOOR_CMD} close"
-        )
-    else:
-        print(f"Skipping close timer (time has passed: {close_time.strftime('%H:%M')})")
+    close_created = create_timer(
+        "coopdoor-close",
+        close_time,
+        f"{COOP_DOOR_CMD} close",
+        now
+    )
     
-    return True
+    # Verify timers were created
+    print("\nVerifying timers...")
+    result = subprocess.run(
+        ["systemctl", "list-timers", "--all", "--no-pager"],
+        capture_output=True,
+        text=True
+    )
+    
+    found_open = False
+    found_close = False
+    
+    for line in result.stdout.split('\n'):
+        if 'coopdoor-open' in line:
+            print(f"  ✓ Open timer: {line.strip()}")
+            found_open = True
+        if 'coopdoor-close' in line:
+            print(f"  ✓ Close timer: {line.strip()}")
+            found_close = True
+    
+    if not found_open and open_created:
+        print("  ⚠ Warning: Open timer created but not found in list")
+    if not found_close and close_created:
+        print("  ⚠ Warning: Close timer created but not found in list")
+    
+    success = (open_created or close_created)
+    return success
 
 
 def main():
     print("=" * 50)
-    print("CoopDoor Schedule Apply (FIXED VERSION)")
+    print("CoopDoor Schedule Apply (FULLY FIXED)")
     print(f"Running at: {datetime.now()}")
     print("=" * 50)
+    print()
     
     # Load config
-    config = load_config()
+    try:
+        config = load_config()
+    except Exception as e:
+        print(f"✗ Failed to load config: {e}")
+        sys.exit(1)
     
     # Apply schedule
-    success = apply_schedule(config)
+    try:
+        success = apply_schedule(config)
+    except Exception as e:
+        print(f"\n✗ Exception while applying schedule: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     
     if success:
-        print("\n✓ Schedule applied successfully")
+        print("\n" + "=" * 50)
+        print("✓ Schedule applied successfully")
+        print("=" * 50)
         sys.exit(0)
     else:
-        print("\n✗ Failed to apply schedule")
+        print("\n" + "=" * 50)
+        print("✗ Failed to apply schedule")
+        print("=" * 50)
         sys.exit(1)
 
 
