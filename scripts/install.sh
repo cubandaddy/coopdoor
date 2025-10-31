@@ -87,6 +87,7 @@ setup_venv() {
         bleak \
         astral \
         pgeocode \
+        timezonefinder \
         requests
     
     chown -R "${APP_USER}:${APP_USER}" "${VENV_DIR}"
