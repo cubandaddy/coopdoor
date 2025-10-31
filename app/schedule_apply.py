@@ -17,6 +17,7 @@ import subprocess
 import sys
 from datetime import datetime, time, timedelta
 from pathlib import Path
+from shared_config import AUTOMATION_PATH
 
 # Try to import optional dependencies
 try:
@@ -36,7 +37,7 @@ except ImportError:
     print("Warning: pgeocode not available for ZIP code lookup")
 
 
-CONFIG_FILE = "/etc/coopdoor/automation.json"
+CONFIG_FILE = str(AUTOMATION_PATH)
 COOP_DOOR_CMD = "/usr/local/bin/coop-door"
 
 

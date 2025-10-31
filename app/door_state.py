@@ -7,6 +7,7 @@ import json
 from typing import TypedDict, Literal, Optional
 from datetime import datetime, timezone
 from pathlib import Path
+from shared_config import DOOR_STATE_PATH, LAST_ACTION_PATH
 
 class DoorState(TypedDict):
     """Current door position state."""
@@ -24,10 +25,6 @@ class LastAction(TypedDict):
     at: str
     source: str
     error: Optional[str]
-
-CONF_DIR = Path("/etc/coopdoor")
-DOOR_STATE_PATH = CONF_DIR / "door_state.json"
-LAST_ACTION_PATH = CONF_DIR / "last_action.json"
 
 def percent_to_pulses(percent: int, base_pulses: int = 14) -> int:
     """

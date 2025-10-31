@@ -17,6 +17,11 @@ LAST_ACTION_PATH = CONF_DIR / "last_action.json"
 SYSTEMD_DIR = Path("/etc/systemd/system")
 BACKUP_DIR = Path("/var/lib/coopdoor-backups")
 
+# Application installation paths
+APP_DIR = Path("/opt/coopdoor")
+DAEMON_PATH = APP_DIR / "coopd.py"
+VENV_PYTHON = APP_DIR / ".venv" / "bin" / "python3"
+
 # ========== SHARED UTILITIES ==========
 
 def system_timezone() -> str:

@@ -118,6 +118,12 @@ remove_app_files() {
         log "Removing ${CLI_SHIM}"
         rm -f "${CLI_SHIM}"
     fi
+    
+    # Remove sudoers configuration
+    if [[ -f "/etc/sudoers.d/coopdoor-apply" ]]; then
+        log "Removing sudoers configuration"
+        rm -f "/etc/sudoers.d/coopdoor-apply"
+    fi
 }
 
 remove_config() {

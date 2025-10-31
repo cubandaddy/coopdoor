@@ -87,6 +87,7 @@ setup_venv() {
         bleak \
         astral \
         pgeocode \
+        pytz \
         timezonefinder \
         requests
     
@@ -170,6 +171,22 @@ EOF
     chmod 755 "${BACKUP_DIR}"
 }
 
+setup_sudoers() {
+    log "Configuring sudoers for schedule management"
+    
+    # Install sudoers file to allow coop user to manage schedule service
+    install -m 0440 "${INSTALLER_DIR}/config/coopdoor-apply-sudoers" /etc/sudoers.d/coopdoor-apply
+    
+    # Validate sudoers syntax
+    visudo -c -f /etc/sudoers.d/coopdoor-apply >/dev/null 2>&1
+    if [[ $? -ne 0 ]]; then
+        log "Warning: sudoers file validation failed, removing"
+        rm -f /etc/sudoers.d/coopdoor-apply
+    else
+        log "Sudoers configuration installed successfully"
+    fi
+}
+
 apply_schedule() {
     log "Applying initial schedule configuration"
     
@@ -243,6 +260,7 @@ main() {
     install_app_files
     setup_venv
     setup_config
+    setup_sudoers
     install_systemd_services
     apply_schedule
     check_tailscale
