@@ -185,20 +185,37 @@
   <section id="page-control" class="card">
     <div class="row" style="margin-bottom:12px">
       <h2 class="title" style="margin:0">Status</h2>
-      <span class="tiny" style="margin-left:auto" id="lastUpdate">Last updated: never</span>
+      <span class="tiny" style="margin-left:auto;color:var(--muted)">v1.0.0</span>
     </div>
-    <div class="status-grid">
+    
+    <div class="status-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
       <div class="status-item" id="statusConnection">
         <div class="status-label">Connection</div>
         <div class="status-value" id="statusConnValue">Checking...</div>
       </div>
       <div class="status-item">
-        <div class="status-label">Last Action</div>
-        <div class="status-value" id="statusLastAction">None</div>
+        <div class="status-label">Door Position</div>
+        <div class="status-value" id="statusDoorPos">Unknown</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Mode</div>
+        <div class="status-value" id="statusMode">--</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Opens At</div>
+        <div class="status-value" id="statusOpenTime">--:--</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Closes At</div>
+        <div class="status-value" id="statusCloseTime">--:--</div>
       </div>
       <div class="status-item">
         <div class="status-label">Next Scheduled</div>
         <div class="status-value" id="statusNextSched">Not set</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Last Action</div>
+        <div class="status-value" id="statusLastAction">None</div>
       </div>
     </div>
 
@@ -221,16 +238,6 @@
           </label>
         </div>
         <button id="btnCustomOpen" class="btn primary" onclick="openToCustom()">Open</button>
-      </div>
-    </div>
-
-    <div class="status-card" style="margin-top:14px">
-      <div class="kv">
-        <div class="dim">Position</div>     <div id="sDoorPos">Unknown</div>
-        <div class="dim">Last Action</div>  <div id="sLast">No actions yet</div>
-        <div class="dim">Mode</div>         <div id="sSched">--</div>
-        <div class="dim">Open</div>         <div id="sOpen">--:--</div>
-        <div class="dim">Close</div>        <div id="sClose">--:--</div>
       </div>
     </div>
   </section>
@@ -386,6 +393,18 @@
       <button class="btn primary" onclick="saveAndApply()" style="flex:1">Save & Apply</button>
       <button class="btn ghost" onclick="loadConfig()">Reset</button>
     </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3 class="title">API Connection</h3>
+      <div class="grid2">
+        <div><label>Base URL <input id="baseUrl" type="text" placeholder="https://host.tailnet.ts.net"></label></div>
+        <div><label>Bearer Token (optional) <input id="bearer" type="password" placeholder="leave blank with Tailscale"></label></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn neutral" onclick="saveSettings()">Save Connection Settings</button>
+        <span class="subtitle">Saved in your browser only.</span>
+      </div>
+    </div>
   </section>
 
   <!-- DIAGNOSTICS TAB -->
@@ -421,13 +440,7 @@
 </main>
 
 <footer class="sticky">
-  <div class="tiny">
-    <span id="hostLabel"></span>
-    <span style="margin:0 8px">•</span>
-    <span title="Keyboard shortcuts">
-      1-4: Open | C: Close | R: Refresh | Ctrl+1/2/3: Switch tabs
-    </span>
-  </div>
+  <div class="tiny" id="hostLabel"></div>
 </footer>
 
 <script>
@@ -542,36 +555,24 @@
 
     // Door position
     const doorState = e && e.door_state;
+    const doorPosEl = document.getElementById('statusDoorPos');
     if (doorState && typeof doorState.position_percent === 'number') {
       const pct = doorState.position_percent;
-      const pulses = doorState.position_pulses;
-      sDoorPos.textContent = pct + '% (' + pulses + ' pulses)';
-      sDoorPos.className = pct > 0 ? 'ok' : 'dim';
+      doorPosEl.textContent = pct + '%';
     } else {
-      sDoorPos.textContent = 'Unknown';
-      sDoorPos.className = '';
+      doorPosEl.textContent = 'Unknown';
     }
 
     // Last action
     const le = (e && e.last_action) || S.last;
+    const lastActionEl = document.getElementById('statusLastAction');
     if (le && le.cmd) {
-      const when = fmt(le.at);
       const verb = le.cmd.charAt(0).toUpperCase() + le.cmd.slice(1);
       const pct = (le.cmd === 'open' && typeof le.requested_percent === 'number') ? (' ' + le.requested_percent + '%') : '';
-      const res = le.ok ? 'Succeeded' : 'Failed';
-      const resClass = le.ok ? 'ok' : 'bad';
-      
-      let src = '';
-      if (le.source) {
-        const sourceText = le.source === 'scheduled' ? 'scheduled' : 'manual';
-        src = ' <span class="dim">(' + sourceText + ')</span>';
-      }
-      
-      sLast.innerHTML = `${verb}${pct} <span class="${resClass}">${res}</span> at ${when.time}${src}`;
-      document.getElementById('statusLastAction').innerHTML = `${verb}${pct}${src}`;
+      const src = le.source ? ' (' + (le.source === 'scheduled' ? 'scheduled' : 'manual') + ')' : '';
+      lastActionEl.innerHTML = `${verb}${pct}${src}`;
     } else {
-      sLast.textContent = 'No actions yet';
-      document.getElementById('statusLastAction').textContent = 'None';
+      lastActionEl.textContent = 'None';
     }
   }
 
@@ -580,36 +581,34 @@
       const j = await api('/status');
       if (j.last_action) S.last = j.last_action;
       renderStatus(j);
-      
-      // Update last refresh time
-      const now = new Date();
-      document.getElementById('lastUpdate').textContent = 
-        'Last updated: ' + now.toLocaleTimeString();
     } catch(e){
       renderStatus({connected:false, last_action:S.last});
-      document.getElementById('lastUpdate').textContent = 
-        'Last updated: failed';
     }
   }
 
   async function refreshSchedule(){
     try{
       const j = await api('/schedule/preview');
-      sSched.textContent = (j.mode || 'Unknown');
-      sOpen.textContent  = j.open_time || '--:--';
-      sClose.textContent = j.close_time || '--:--';
       
+      // Update mode
+      document.getElementById('statusMode').textContent = (j.mode || 'Unknown');
+      
+      // Update times
+      document.getElementById('statusOpenTime').textContent = j.open_time || '--:--';
+      document.getElementById('statusCloseTime').textContent = j.close_time || '--:--';
+      
+      // Update next scheduled
       const nextEl = document.getElementById('statusNextSched');
       if (j.next_scheduled) {
         const d = new Date(j.next_scheduled);
-        nextEl.textContent = d.toLocaleString();
+        nextEl.textContent = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
       } else {
         nextEl.textContent = 'Not set';
       }
     }catch(_){
-      sSched.textContent = 'Unknown'; 
-      sOpen.textContent='--:--'; 
-      sClose.textContent='--:--';
+      document.getElementById('statusMode').textContent = 'Unknown';
+      document.getElementById('statusOpenTime').textContent = '--:--';
+      document.getElementById('statusCloseTime').textContent = '--:--';
       document.getElementById('statusNextSched').textContent = 'Not set';
     }
   }
@@ -625,8 +624,7 @@
     S.last = optimistic;
     const verb = cmd.charAt(0).toUpperCase() + cmd.slice(1);
     const pctStr = (cmd === 'open' && pct) ? (' ' + pct + '%') : '';
-    sLast.innerHTML = `${verb}${pctStr} <span class="warn">pending...</span>`;
-    document.getElementById('statusLastAction').innerHTML = `${verb}${pctStr} <span class="dim">(manual)</span>`;
+    document.getElementById('statusLastAction').innerHTML = `${verb}${pctStr} <span style="color:var(--warn)">(pending...)</span>`;
   }
 
   function setLoading(el, on){ el.classList.toggle('loading', !!on); el.disabled = !!on; }
@@ -644,7 +642,8 @@
       }
     } catch(e) {
       console.error('Open command error:', e);
-      sLast.innerHTML += ' <span class="warn">(error: ' + e.message + ')</span>';
+      const lastActionEl = document.getElementById('statusLastAction');
+      lastActionEl.innerHTML += ' <span style="color:var(--warn)">(error)</span>';
     }
     
     setLoading(btn, false);
@@ -670,7 +669,8 @@
       }
     } catch(e) {
       console.error('Open command error:', e);
-      sLast.innerHTML += ' <span class="warn">(error: ' + e.message + ')</span>';
+      const lastActionEl = document.getElementById('statusLastAction');
+      lastActionEl.innerHTML += ' <span style="color:var(--warn)">(error)</span>';
     }
     
     setLoading(btn, false);
@@ -690,7 +690,8 @@
       }
     } catch(e) {
       console.error('Close command error:', e);
-      sLast.innerHTML += ' <span class="warn">(error: ' + e.message + ')</span>';
+      const lastActionEl = document.getElementById('statusLastAction');
+      lastActionEl.innerHTML += ' <span style="color:var(--warn)">(error)</span>';
     }
     
     setLoading(btn, false);
@@ -998,34 +999,6 @@
   // Initial load
   getStatus(); 
   refreshSchedule();
-  
-  // Keyboard shortcuts
-  document.addEventListener('keydown', (e) => {
-    // Only if not typing in an input
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    
-    // Number keys 1-4 for quick open percentages
-    if (e.key === '1') openTo(25);
-    if (e.key === '2') openTo(50);
-    if (e.key === '3') openTo(75);
-    if (e.key === '4') openTo(100);
-    
-    // 'c' for close
-    if (e.key === 'c' || e.key === 'C') closeDoor();
-    
-    // 'r' for refresh status
-    if (e.key === 'r' || e.key === 'R') {
-      e.preventDefault();
-      getStatus();
-    }
-    
-    // Tab switching: Ctrl+1, Ctrl+2, Ctrl+3
-    if (e.ctrlKey || e.metaKey) {
-      if (e.key === '1') { e.preventDefault(); location.hash = 'control'; }
-      if (e.key === '2') { e.preventDefault(); location.hash = 'config'; }
-      if (e.key === '3') { e.preventDefault(); location.hash = 'diag'; }
-    }
-  });
 </script>
 </body>
 </html>
