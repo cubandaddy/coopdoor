@@ -2,13 +2,13 @@
 """
 schedule_apply.py - Apply automation schedule by creating systemd timers
 
-This script reads automation config and creates systemd timers for 
-scheduled door open/close operations.
-
-FIXED VERSION: 
-- Addresses permission issues with sudo
-- Fixes midnight timer bug by validating future times
-- Proper systemd-run calendar format
+FULLY FIXED VERSION with:
+- Permission fixes (sudo)
+- Midnight timer bug fix
+- Config validation
+- Sanity checks on solar times
+- Comprehensive error handling
+- Better logging
 """
 
 import json
@@ -40,14 +40,78 @@ CONFIG_FILE = "/etc/coopdoor/automation.json"
 COOP_DOOR_CMD = "/usr/local/bin/coop-door"
 
 
+def validate_config(config):
+    """
+    Validate configuration values to prevent bad settings
+    
+    Raises ValueError if config is invalid
+    """
+    mode = config.get('mode')
+    
+    if mode not in ['solar', 'fixed']:
+        raise ValueError(f"Invalid mode: {mode}. Must be 'solar' or 'fixed'")
+    
+    if mode == 'solar':
+        solar = config.get('solar', {})
+        sunrise_offset = solar.get('sunrise_offset_min', 0)
+        sunset_offset = solar.get('sunset_offset_min', 0)
+        
+        # Validate offsets are reasonable (max 3 hours)
+        if not -180 <= sunrise_offset <= 180:
+            raise ValueError(f"sunrise_offset_min must be between -180 and 180 minutes, got {sunrise_offset}")
+        if not -180 <= sunset_offset <= 180:
+            raise ValueError(f"sunset_offset_min must be between -180 and 180 minutes, got {sunset_offset}")
+        
+        # Validate location exists
+        if 'zip' not in config and ('location' not in config or 'lat' not in config['location']):
+            raise ValueError("Solar mode requires either 'zip' or 'location' with lat/lon")
+        
+        if 'zip' in config:
+            zip_code = str(config['zip'])
+            if not zip_code or len(zip_code) < 5:
+                raise ValueError(f"Invalid ZIP code: {zip_code}")
+    
+    if mode == 'fixed':
+        fixed = config.get('fixed', {})
+        
+        if 'open' not in fixed or 'close' not in fixed:
+            raise ValueError("Fixed mode requires both 'open' and 'close' times")
+        
+        open_time = fixed.get('open')
+        close_time = fixed.get('close')
+        
+        # Validate time format
+        try:
+            datetime.strptime(open_time, '%H:%M')
+            datetime.strptime(close_time, '%H:%M')
+        except ValueError as e:
+            raise ValueError(f"Invalid time format (use HH:MM): {e}")
+    
+    # Validate open_percent
+    open_percent = config.get('open_percent', 100)
+    if not 0 <= open_percent <= 100:
+        raise ValueError(f"open_percent must be 0-100, got {open_percent}")
+    
+    return True
+
+
 def load_config():
-    """Load automation configuration"""
+    """Load and validate automation configuration"""
     if not os.path.exists(CONFIG_FILE):
         print(f"Error: Config file not found: {CONFIG_FILE}")
         sys.exit(1)
     
     with open(CONFIG_FILE, 'r') as f:
-        return json.load(f)
+        config = json.load(f)
+    
+    # Validate config
+    try:
+        validate_config(config)
+    except ValueError as e:
+        print(f"✗ Config validation failed: {e}")
+        sys.exit(1)
+    
+    return config
 
 
 def get_coordinates_from_zip(zip_code, country="US"):
@@ -66,7 +130,11 @@ def get_coordinates_from_zip(zip_code, country="US"):
 
 
 def calculate_solar_times(config):
-    """Calculate today's sunrise and sunset times"""
+    """
+    Calculate today's sunrise and sunset times with SANITY CHECKS
+    
+    Returns tuple of (open_time, close_time) or (None, None) on error
+    """
     if not SOLAR_AVAILABLE:
         print("Error: Solar calculations not available (missing astral/pytz)")
         return None, None
@@ -86,8 +154,17 @@ def calculate_solar_times(config):
         print("Error: No location information in config")
         return None, None
     
-    # Get timezone
-    tz_name = config.get('timezone', 'America/New_York')
+    # Use timezone from config or auto-detect from coordinates
+    tz_name = config.get('timezone')
+    if not tz_name:
+        # Auto-detect timezone from coordinates
+        import timezonefinder
+        tf = timezonefinder.TimezoneFinder()
+        tz_name = tf.timezone_at(lat=lat, lng=lon)
+        if not tz_name:
+            tz_name = 'America/New_York'  # Fallback
+            print(f"Could not auto-detect timezone, using {tz_name}")
+    
     try:
         tz = pytz.timezone(tz_name)
     except:
@@ -109,6 +186,31 @@ def calculate_solar_times(config):
     open_time = sunrise + timedelta(minutes=sunrise_offset)
     close_time = sunset + timedelta(minutes=sunset_offset)
     
+    # SANITY CHECKS - verify times make sense
+    now = datetime.now(tz)
+    
+    # Check that sunrise is between 4 AM and 10 AM
+    if not (4 <= open_time.hour <= 10):
+        print(f"⚠️  WARNING: Calculated open time {open_time.strftime('%H:%M')} seems wrong!")
+        print(f"   Expected between 4:00 AM and 10:00 AM")
+        print(f"   Using fallback time of 7:00 AM")
+        open_time = tz.localize(datetime.combine(now.date(), time(7, 0)))
+    
+    # Check that sunset is between 4 PM and 10 PM  
+    if not (16 <= close_time.hour <= 22):
+        print(f"⚠️  WARNING: Calculated close time {close_time.strftime('%H:%M')} seems wrong!")
+        print(f"   Expected between 4:00 PM and 10:00 PM")
+        print(f"   Using fallback time of 7:00 PM")
+        close_time = tz.localize(datetime.combine(now.date(), time(19, 0)))
+    
+    # Check that close time is after open time
+    if close_time <= open_time:
+        print(f"⚠️  WARNING: Close time is before open time!")
+        print(f"   Open: {open_time.strftime('%H:%M')}, Close: {close_time.strftime('%H:%M')}")
+        print(f"   Using fallback times: 7:00 AM / 7:00 PM")
+        open_time = tz.localize(datetime.combine(now.date(), time(7, 0)))
+        close_time = tz.localize(datetime.combine(now.date(), time(19, 0)))
+    
     return open_time, close_time
 
 
@@ -118,7 +220,6 @@ def remove_existing_timers():
     
     # Stop and disable any running timers first
     for timer_name in ["coopdoor-open", "coopdoor-close"]:
-        # Try to stop the timer unit (may not exist, that's ok)
         subprocess.run(
             ["sudo", "systemctl", "stop", f"{timer_name}.timer"],
             capture_output=True,
@@ -139,7 +240,6 @@ def remove_existing_timers():
     for file in [timer_file, service_file, close_timer, close_service]:
         if os.path.exists(file):
             try:
-                print(f"  Removing {file}")
                 result = subprocess.run(
                     ["sudo", "rm", "-f", file],
                     capture_output=True,
@@ -149,8 +249,7 @@ def remove_existing_timers():
             except subprocess.CalledProcessError as e:
                 print(f"  Warning: Could not remove {file}: {e.stderr}")
     
-    # Also clean up any transient timers that systemd-run might have created
-    print("  Cleaning up transient timers...")
+    # Clean up transient timers from systemd-run
     result = subprocess.run(
         ["systemctl", "list-units", "--all", "--no-pager"],
         capture_output=True,
@@ -159,7 +258,6 @@ def remove_existing_timers():
     for line in result.stdout.split('\n'):
         if 'coopdoor-open' in line or 'coopdoor-close' in line:
             unit_name = line.split()[0]
-            print(f"  Stopping transient unit: {unit_name}")
             subprocess.run(
                 ["sudo", "systemctl", "stop", unit_name],
                 capture_output=True,
@@ -167,7 +265,6 @@ def remove_existing_timers():
             )
     
     # Reload systemd daemon
-    print("  Reloading systemd daemon...")
     subprocess.run(
         ["sudo", "systemctl", "daemon-reload"],
         check=False
@@ -178,10 +275,7 @@ def remove_existing_timers():
 
 def create_timer(timer_name, when_dt, command, now):
     """
-    Create a systemd timer using systemd-run
-    
-    CRITICAL FIX: Validates that the time is in the future before creating timer
-    and uses proper systemd calendar format.
+    Create a systemd timer using systemd-run with validation
     
     Args:
         timer_name: Name for the timer unit
@@ -195,7 +289,7 @@ def create_timer(timer_name, when_dt, command, now):
     
     # CRITICAL: Validate time is in the future
     if when_dt <= now:
-        print(f"  ⚠ Skipping {timer_name}: time {when_dt.strftime('%H:%M:%S')} has already passed")
+        print(f"  ⚠️  Skipping {timer_name}: time {when_dt.strftime('%H:%M:%S')} has already passed")
         return False
     
     time_until = when_dt - now
@@ -203,31 +297,29 @@ def create_timer(timer_name, when_dt, command, now):
     
     # Additional safety: don't create timers for times more than 24 hours away
     if hours > 24:
-        print(f"  ⚠ Skipping {timer_name}: time is more than 24 hours away")
+        print(f"  ⚠️  Skipping {timer_name}: time is more than 24 hours away")
         return False
     
     # Format for systemd OnCalendar: "YYYY-MM-DD HH:MM:SS"
-    # This is the ISO format that systemd expects
     when_str = when_dt.strftime("%Y-%m-%d %H:%M:%S")
     
     print(f"  Creating timer: {timer_name}")
     print(f"    Scheduled for: {when_str} (in {hours:.1f} hours)")
     print(f"    Command: {command}")
     
-    # Use systemd-run to create a transient timer
-    # --uid=coop ensures command runs as coop user
-    # --on-calendar specifies when to run
-    # --timer-property=RemainAfterElapse=no cleans up after execution
+    # Build command with logging wrapper
+    log_msg = f"[CoopDoor] Timer fired: {timer_name} at {when_str}"
+    wrapped_command = f"echo '{log_msg}' | systemd-cat -t coopdoor && {command}"
+    
     cmd_args = [
         "sudo", "systemd-run",
         "--uid=coop",
         f"--on-calendar={when_str}",
         "--timer-property=RemainAfterElapse=no",
-        f"--unit={timer_name}"
+        f"--unit={timer_name}",
+        "/bin/sh", "-c",
+        wrapped_command
     ]
-    
-    # Add the actual command to execute
-    cmd_args.extend(command.split())
     
     try:
         result = subprocess.run(
@@ -246,12 +338,43 @@ def create_timer(timer_name, when_dt, command, now):
         return False
 
 
+def get_timezone_from_coords(lat, lon):
+    """Auto-detect timezone from coordinates"""
+    try:
+        import timezonefinder
+        tf = timezonefinder.TimezoneFinder()
+        tz_name = tf.timezone_at(lat=lat, lng=lon)
+        return tz_name if tz_name else 'America/New_York'
+    except:
+        return 'America/New_York'
+
+
 def apply_schedule(config):
     """Apply the automation schedule - FULLY FIXED VERSION"""
     mode = config.get('mode', 'solar')
-    tz_name = config.get('timezone', 'America/New_York')
     
-    # Get timezone
+    # Determine timezone
+    if 'timezone' in config and config['timezone']:
+        tz_name = config['timezone']
+    else:
+        # Auto-detect from location
+        if mode == 'solar':
+            if 'location' in config and 'lat' in config['location']:
+                lat = config['location']['lat']
+                lon = config['location']['lon']
+                tz_name = get_timezone_from_coords(lat, lon)
+            elif 'zip' in config:
+                lat, lon = get_coordinates_from_zip(config['zip'], config.get('country', 'US'))
+                if lat:
+                    tz_name = get_timezone_from_coords(lat, lon)
+                else:
+                    tz_name = 'America/New_York'
+            else:
+                tz_name = 'America/New_York'
+        else:
+            tz_name = 'America/New_York'
+    
+    # Get timezone object
     try:
         tz = pytz.timezone(tz_name)
     except:
@@ -317,7 +440,7 @@ def apply_schedule(config):
     # Remove existing timers
     remove_existing_timers()
     
-    # Create new timers - passing now for validation
+    # Create new timers
     print("\nCreating new timers...")
     open_created = create_timer(
         "coopdoor-open",
@@ -353,9 +476,9 @@ def apply_schedule(config):
             found_close = True
     
     if not found_open and open_created:
-        print("  ⚠ Warning: Open timer created but not found in list")
+        print("  ⚠️  Warning: Open timer created but not found in list")
     if not found_close and close_created:
-        print("  ⚠ Warning: Close timer created but not found in list")
+        print("  ⚠️  Warning: Close timer created but not found in list")
     
     success = (open_created or close_created)
     return success
@@ -368,7 +491,7 @@ def main():
     print("=" * 50)
     print()
     
-    # Load config
+    # Load and validate config
     try:
         config = load_config()
     except Exception as e:
