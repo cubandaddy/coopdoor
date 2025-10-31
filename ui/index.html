@@ -18,9 +18,9 @@
     }
     *{box-sizing:border-box} html,body{height:100%}
     body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-    header{position:sticky;top:0;z-index:50;padding:14px 18px;border-bottom:1px solid var(--border);
+    header{position:sticky;top:0;z-index:50;padding:10px 14px;border-bottom:1px solid var(--border);
       background:#0d0e11cc;backdrop-filter:saturate(120%) blur(8px)}
-    main{max-width:980px;margin:0 auto;padding:18px;display:grid;gap:16px}
+    main{max-width:980px;margin:0 auto;padding:12px;display:grid;gap:12px}
     h1{margin:0;font-size:1.6rem;letter-spacing:.3px;color:#c7ccff}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .grow{flex:1 1 auto}
@@ -29,14 +29,14 @@
     nav.tabs{display:flex;gap:8px;border-bottom:1px solid var(--border)}
     nav.tabs a{padding:10px 12px;border-radius:10px 10px 0 0;color:var(--fg);text-decoration:none;border:1px solid transparent}
     nav.tabs a.active{border-color:var(--border);border-bottom-color:transparent;background:#15161a}
-    .card{background:var(--bg-elev);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
-    .title{margin:0 0 10px;font-size:1rem;color:#c7ccff}
+    .card{background:var(--bg-elev);border:1px solid var(--border);border-radius:var(--radius);padding:12px;box-shadow:var(--shadow)}
+    .title{margin:0 0 8px;font-size:.9rem;color:#c7ccff}
     .subtitle{color:var(--muted);font-size:.9rem;margin:.25rem 0 .75rem}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
     @media (max-width:720px){.grid2,.grid3{grid-template-columns:1fr}}
-    .btn{appearance:none;border:1px solid transparent;cursor:pointer;border-radius:12px;padding:14px 18px;font-weight:700;
-      transition:transform var(--speed),background var(--speed),border-color var(--speed),opacity var(--speed);user-select:none}
+    .btn{appearance:none;border:1px solid transparent;cursor:pointer;border-radius:12px;padding:10px 14px;font-weight:700;
+      transition:transform var(--speed),background var(--speed),border-color var(--speed),opacity var(--speed);user-select:none;font-size:.9rem}
     .btn.primary{background:var(--brand);color:#fff}
     .btn.neutral{background:#1a1b1f;color:var(--fg);border-color:var(--border)}
     .btn.ghost{background:transparent;border-color:var(--border);color:var(--fg)}
@@ -48,15 +48,15 @@
     @keyframes spin{to{transform:translateY(-50%) rotate(360deg)}}
     .actions{display:grid;grid-template-columns:repeat(2, minmax(140px,1fr));gap:12px}
     .status-card{background:var(--card);border:1px dashed var(--border);padding:14px;border-radius:12px}
-    .status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
-    .status-item{background:var(--card);padding:12px;border-radius:8px;border-left:3px solid var(--brand)}
+    .status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
+    .status-item{background:var(--card);padding:8px 10px;border-radius:8px;border-left:3px solid var(--brand)}
     .status-item.ok{border-left-color:var(--ok)}
     .status-item.bad{border-left-color:var(--bad)}
-    .status-label{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-    .status-value{font-size:1.1rem;font-weight:600}
+    .status-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+    .status-value{font-size:.95rem;font-weight:600;line-height:1.2}
     .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace}
     .dim{color:var(--muted)}
-    footer.sticky{position:fixed;left:0;right:0;bottom:0;padding:10px;display:flex;justify-content:center;background:transparent}
+    footer.sticky{position:relative;left:0;right:0;bottom:0;padding:8px;text-align:center;background:transparent;margin-top:20px}
     .tiny{opacity:.65;font-size:.8rem}
     details.card summary{cursor:pointer;user-select:none}
     details.card summary:hover{color:var(--brand)}
@@ -183,12 +183,12 @@
 
   <!-- CONTROL / STATUS TAB -->
   <section id="page-control" class="card">
-    <div class="row" style="margin-bottom:12px">
-      <h2 class="title" style="margin:0">Status</h2>
+    <div class="row" style="margin-bottom:8px">
+      <h2 class="title" style="margin:0;font-size:.9rem">Status</h2>
       <span class="tiny" style="margin-left:auto;color:var(--muted)">v1.0.0</span>
     </div>
     
-    <div class="status-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+    <div class="status-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
       <div class="status-item" id="statusConnection">
         <div class="status-label">Connection</div>
         <div class="status-value" id="statusConnValue">Checking...</div>
@@ -202,6 +202,10 @@
         <div class="status-value" id="statusMode">--</div>
       </div>
       <div class="status-item">
+        <div class="status-label">Next Scheduled</div>
+        <div class="status-value" id="statusNextSched">Not set</div>
+      </div>
+      <div class="status-item">
         <div class="status-label">Opens At</div>
         <div class="status-value" id="statusOpenTime">--:--</div>
       </div>
@@ -210,35 +214,31 @@
         <div class="status-value" id="statusCloseTime">--:--</div>
       </div>
       <div class="status-item">
-        <div class="status-label">Next Scheduled</div>
-        <div class="status-value" id="statusNextSched">Not set</div>
-      </div>
-      <div class="status-item">
         <div class="status-label">Last Action</div>
         <div class="status-value" id="statusLastAction">None</div>
       </div>
+      <div class="status-item" id="statusLastResult">
+        <div class="status-label">Result</div>
+        <div class="status-value" id="statusResult">--</div>
+      </div>
     </div>
 
-    <h2 class="title" style="margin-top:20px">Manual Control</h2>
-    <div class="grid3">
+    <h2 class="title" style="margin-top:16px;margin-bottom:8px">Manual Control</h2>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
       <button class="btn primary" onclick="openTo(25)">25%</button>
       <button class="btn primary" onclick="openTo(50)">50%</button>
       <button class="btn primary" onclick="openTo(75)">75%</button>
       <button class="btn primary" onclick="openTo(100)">100%</button>
+    </div>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;align-items:center">
+      <input type="number" id="customPercent" min="0" max="100" value="50" step="1" placeholder="Custom %" style="padding:10px">
+      <button id="btnCustomOpen" class="btn primary" onclick="openToCustom()">Open</button>
+    </div>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
       <button id="btnClose" class="btn neutral" onclick="closeDoor()">Close</button>
       <button id="btnStatus" class="btn ghost" onclick="getStatus()">Refresh</button>
-    </div>
-
-    <div class="status-card" style="margin-top:14px">
-      <h3 class="title" style="font-size:.95rem;margin-bottom:10px">Custom Opening</h3>
-      <div class="grid2" style="align-items:flex-end">
-        <div>
-          <label>Percent (0-100)
-            <input type="number" id="customPercent" min="0" max="100" value="50" step="1">
-          </label>
-        </div>
-        <button id="btnCustomOpen" class="btn primary" onclick="openToCustom()">Open</button>
-      </div>
     </div>
   </section>
 
@@ -553,26 +553,64 @@
       connEl.classList.remove('ok');
     }
 
-    // Door position
-    const doorState = e && e.door_state;
+    // Door position - ALWAYS prioritize door_state
     const doorPosEl = document.getElementById('statusDoorPos');
+    const doorState = e && e.door_state;
+    
+    // Only update if we have door_state data
     if (doorState && typeof doorState.position_percent === 'number') {
-      const pct = doorState.position_percent;
-      doorPosEl.textContent = pct + '%';
+      doorPosEl.textContent = doorState.position_percent + '%';
+      // Store this so we don't lose it
+      window._lastKnownPosition = doorState.position_percent;
+    } else if (window._lastKnownPosition !== undefined) {
+      // Use last known position if we don't have new door state
+      doorPosEl.textContent = window._lastKnownPosition + '%';
     } else {
-      doorPosEl.textContent = 'Unknown';
+      // Fall back to last action only if we have nothing else
+      const lastAction = (e && e.last_action) || S.last;
+      if (lastAction && lastAction.cmd === 'open' && typeof lastAction.requested_percent === 'number') {
+        doorPosEl.textContent = lastAction.requested_percent + '%';
+        window._lastKnownPosition = lastAction.requested_percent;
+      } else if (lastAction && lastAction.cmd === 'close') {
+        doorPosEl.textContent = '0%';
+        window._lastKnownPosition = 0;
+      } else {
+        doorPosEl.textContent = 'Unknown';
+      }
     }
 
-    // Last action
+    // Last action and result
     const le = (e && e.last_action) || S.last;
     const lastActionEl = document.getElementById('statusLastAction');
+    const resultEl = document.getElementById('statusResult');
+    const resultCard = document.getElementById('statusLastResult');
+    
     if (le && le.cmd) {
       const verb = le.cmd.charAt(0).toUpperCase() + le.cmd.slice(1);
       const pct = (le.cmd === 'open' && typeof le.requested_percent === 'number') ? (' ' + le.requested_percent + '%') : '';
       const src = le.source ? ' (' + (le.source === 'scheduled' ? 'scheduled' : 'manual') + ')' : '';
       lastActionEl.innerHTML = `${verb}${pct}${src}`;
+      
+      // Show result
+      if (le.ok === true) {
+        resultEl.textContent = 'Succeeded';
+        resultEl.style.color = 'var(--ok)';
+        resultCard.classList.add('ok');
+        resultCard.classList.remove('bad');
+      } else if (le.ok === false) {
+        resultEl.textContent = 'Failed';
+        resultEl.style.color = 'var(--bad)';
+        resultCard.classList.add('bad');
+        resultCard.classList.remove('ok');
+      } else {
+        resultEl.textContent = 'Pending';
+        resultEl.style.color = 'var(--warn)';
+        resultCard.classList.remove('ok', 'bad');
+      }
     } else {
       lastActionEl.textContent = 'None';
+      resultEl.textContent = '--';
+      resultCard.classList.remove('ok', 'bad');
     }
   }
 
@@ -597,15 +635,34 @@
       document.getElementById('statusOpenTime').textContent = j.open_time || '--:--';
       document.getElementById('statusCloseTime').textContent = j.close_time || '--:--';
       
-      // Update next scheduled
+      // Update next scheduled - handle various formats
       const nextEl = document.getElementById('statusNextSched');
+      
       if (j.next_scheduled) {
-        const d = new Date(j.next_scheduled);
-        nextEl.textContent = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+        try {
+          const d = new Date(j.next_scheduled);
+          
+          if (!isNaN(d.getTime())) {
+            // Show just the time if it's today, otherwise show date + time
+            const now = new Date();
+            const isToday = d.toDateString() === now.toDateString();
+            
+            if (isToday) {
+              nextEl.textContent = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            } else {
+              nextEl.textContent = d.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ' + 
+                                   d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            }
+          } else {
+            nextEl.textContent = 'Not set';
+          }
+        } catch(e) {
+          nextEl.textContent = 'Not set';
+        }
       } else {
         nextEl.textContent = 'Not set';
       }
-    }catch(_){
+    }catch(e){
       document.getElementById('statusMode').textContent = 'Unknown';
       document.getElementById('statusOpenTime').textContent = '--:--';
       document.getElementById('statusCloseTime').textContent = '--:--';
@@ -616,15 +673,28 @@
   function showOptimisticState(cmd, pct){
     const optimistic = {
       cmd: cmd,
-      effective_percent: pct,
+      requested_percent: pct,
       ok: null,
       at: new Date().toISOString(),
       source: 'api'
     };
     S.last = optimistic;
+    
     const verb = cmd.charAt(0).toUpperCase() + cmd.slice(1);
     const pctStr = (cmd === 'open' && pct) ? (' ' + pct + '%') : '';
-    document.getElementById('statusLastAction').innerHTML = `${verb}${pctStr} <span style="color:var(--warn)">(pending...)</span>`;
+    const src = ' (manual)';
+    
+    // Update last action (without pending indicator)
+    document.getElementById('statusLastAction').innerHTML = `${verb}${pctStr}${src}`;
+    
+    // Show "Pending" in Result card
+    const resultEl = document.getElementById('statusResult');
+    const resultCard = document.getElementById('statusLastResult');
+    resultEl.textContent = 'Pending';
+    resultEl.style.color = 'var(--warn)';
+    resultCard.classList.remove('ok', 'bad');
+    
+    // Don't update door position optimistically - wait for door_state from API
   }
 
   function setLoading(el, on){ el.classList.toggle('loading', !!on); el.disabled = !!on; }
@@ -641,7 +711,6 @@
         renderStatus({connected:true, last_event:result.last_event, door_state:result.door_state});
       }
     } catch(e) {
-      console.error('Open command error:', e);
       const lastActionEl = document.getElementById('statusLastAction');
       lastActionEl.innerHTML += ' <span style="color:var(--warn)">(error)</span>';
     }
@@ -668,7 +737,6 @@
         renderStatus({connected:true, last_event:result.last_event, door_state:result.door_state});
       }
     } catch(e) {
-      console.error('Open command error:', e);
       const lastActionEl = document.getElementById('statusLastAction');
       lastActionEl.innerHTML += ' <span style="color:var(--warn)">(error)</span>';
     }
@@ -689,7 +757,6 @@
         renderStatus({connected:true, last_event:result.last_event, door_state:result.door_state});
       }
     } catch(e) {
-      console.error('Close command error:', e);
       const lastActionEl = document.getElementById('statusLastAction');
       lastActionEl.innerHTML += ' <span style="color:var(--warn)">(error)</span>';
     }
@@ -841,7 +908,13 @@
         return;
       }
       
-      const j = JSON.parse(text||'{}');
+      let j;
+      try {
+        j = JSON.parse(text||'{}');
+      } catch(parseErr) {
+        box.innerHTML = '<div class="log-line error">Failed to parse JSON response</div>';
+        return;
+      }
       
       // Update connection status
       document.getElementById('diagConn').innerHTML = j.connected === true 
@@ -850,14 +923,45 @@
       
       // Parse and display logs
       allLogLines = [];
-      if (j.logs && Array.isArray(j.logs)) {
-        allLogLines = j.logs.map(e => ({
-          ts: e.ts || '',
-          msg: e.msg || '',
-          level: detectLogLevel(e.msg)
+      
+      // Check if logs exist and is an array
+      if (j.logs && Array.isArray(j.logs) && j.logs.length > 0) {
+        allLogLines = j.logs.map(e => {
+          // Handle both object format {ts, msg} and string format
+          if (typeof e === 'string') {
+            return {
+              ts: new Date().toISOString().substring(11, 19),
+              msg: e,
+              level: detectLogLevel(e)
+            };
+          } else {
+            return {
+              ts: e.ts || e.timestamp || '',
+              msg: e.msg || e.message || String(e),
+              level: detectLogLevel(e.msg || e.message || String(e))
+            };
+          }
+        });
+      } else if (j.stderr) {
+        // If stderr field exists, parse it as log lines
+        const lines = j.stderr.split('\n').filter(l => l.trim());
+        allLogLines = lines.map(line => ({
+          ts: '',
+          msg: line,
+          level: detectLogLevel(line)
         }));
-        
-        // Show stats
+      } else if (j.stdout) {
+        // If stdout field exists, parse it as log lines
+        const lines = j.stdout.split('\n').filter(l => l.trim());
+        allLogLines = lines.map(line => ({
+          ts: '',
+          msg: line,
+          level: detectLogLevel(line)
+        }));
+      }
+      
+      // Show stats
+      if (allLogLines.length > 0) {
         const errorCount = allLogLines.filter(l => l.level === 'error').length;
         const warnCount = allLogLines.filter(l => l.level === 'warn').length;
         const infoCount = allLogLines.filter(l => l.level === 'info').length;
@@ -867,6 +971,8 @@
           `<span class="bad">Errors: ${errorCount}</span> | ` +
           `<span class="warn">Warnings: ${warnCount}</span> | ` +
           `Info: ${infoCount}`;
+      } else {
+        document.getElementById('diagStats').innerHTML = 'No logs available';
       }
       
       filterLogs();
