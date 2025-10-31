@@ -5,7 +5,6 @@
 <link rel="apple-touch-icon" sizes="167x167" href="/ui/apple-touch-icon-167.png?v=1761083686">  
 <link rel="apple-touch-icon" sizes="152x152" href="/ui/apple-touch-icon-152.png?v=1761083686">  
 <meta name="apple-mobile-web-app-title" content="CoopDoor">
-<meta name="apple-mobile-web-app-title" content="CoopDoor">
   <meta charset="utf-8">
   <title>Coop Door</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -34,20 +33,29 @@
     .title{margin:0 0 10px;font-size:1rem;color:#c7ccff}
     .subtitle{color:var(--muted);font-size:.9rem;margin:.25rem 0 .75rem}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    @media (max-width:720px){.grid2{grid-template-columns:1fr}}
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    @media (max-width:720px){.grid2,.grid3{grid-template-columns:1fr}}
     .btn{appearance:none;border:1px solid transparent;cursor:pointer;border-radius:12px;padding:14px 18px;font-weight:700;
       transition:transform var(--speed),background var(--speed),border-color var(--speed),opacity var(--speed);user-select:none}
     .btn.primary{background:var(--brand);color:#fff}
     .btn.neutral{background:#1a1b1f;color:var(--fg);border-color:var(--border)}
     .btn.ghost{background:transparent;border-color:var(--border);color:var(--fg)}
+    .btn.danger{background:#7d1f1f;color:#fff;border-color:#ff7b72}
+    .btn:hover:not(:disabled){transform:translateY(-1px)}
     .btn:disabled{opacity:.55;cursor:default}
     .btn.loading{pointer-events:none;opacity:.85;position:relative}
     .btn.loading::after{content:"";width:18px;height:18px;border-radius:50%;border:2px solid #fff;border-right-color:transparent;position:absolute;right:12px;top:50%;transform:translateY(-50%);animation:spin .6s linear infinite}
     @keyframes spin{to{transform:translateY(-50%) rotate(360deg)}}
     .actions{display:grid;grid-template-columns:repeat(2, minmax(140px,1fr));gap:12px}
     .status-card{background:var(--card);border:1px dashed var(--border);padding:14px;border-radius:12px}
+    .status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+    .status-item{background:var(--card);padding:12px;border-radius:8px;border-left:3px solid var(--brand)}
+    .status-item.ok{border-left-color:var(--ok)}
+    .status-item.bad{border-left-color:var(--bad)}
+    .status-label{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+    .status-value{font-size:1.1rem;font-weight:600}
     .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace}
-    .dim{color:var(--muted)} .cap-note{font-size:.9rem;color:var(--muted)}
+    .dim{color:var(--muted)}
     footer.sticky{position:fixed;left:0;right:0;bottom:0;padding:10px;display:flex;justify-content:center;background:transparent}
     .tiny{opacity:.65;font-size:.8rem}
     details.card summary{cursor:pointer;user-select:none}
@@ -58,6 +66,89 @@
       border-radius:8px;color:var(--fg);font-size:.9rem;margin-top:4px}
     input[type="text"]:focus,input[type="password"]:focus,input[type="number"]:focus,input[type="time"]:focus,select:focus{
       outline:none;border-color:var(--brand)}
+    input[type="checkbox"]{width:auto;margin-right:8px}
+    .helper-text{display:block;margin-top:6px;font-size:.85rem;color:var(--muted);line-height:1.4}
+    .helper-text strong{color:var(--fg)}
+    .section-header{font-size:.95rem;color:var(--muted);margin:16px 0 8px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+    .alert{padding:12px;border-radius:8px;margin-bottom:12px;border-left:3px solid}
+    .alert.info{background:#1a2332;border-left-color:#4e5fff;color:#b8c5ff}
+    .alert.success{background:#1a2e22;border-left-color:#56d364;color:#aff5b4}
+    .alert.warning{background:#332b1a;border-left-color:#f4bf4f;color:#f9e2af}
+    .alert.error{background:#2e1a1a;border-left-color:#ff7b72;color:#ffb3b3}
+    
+    /* Diagnostics enhancements */
+    .diag-controls{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+    .diag-controls .btn{padding:8px 14px;font-size:.85rem}
+    .filter-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;margin-left:6px;font-weight:600}
+    .filter-badge.error{background:#7d1f1f;color:#ffb3b3}
+    .filter-badge.warn{background:#665722;color:#f9e2af}
+    .filter-badge.info{background:#1f2f4d;color:#b8c5ff}
+    #diag{white-space:pre-wrap;margin-top:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;font-size:13px;line-height:1.5}
+    .log-line{padding:4px 0;border-bottom:1px solid #1a1b1f}
+    .log-line:hover{background:#15161a}
+    .log-line.error{color:#ffb3b3;background:#1f1212}
+    .log-line.warn{color:#f9e2af;background:#1f1c12}
+    .log-line.info{color:#b8c5ff}
+    .log-timestamp{color:var(--muted);margin-right:8px}
+    .log-level{display:inline-block;width:50px;font-weight:600}
+    .search-box{flex:1;min-width:200px}
+    
+    /* Keyboard shortcuts hint */
+    .kbd{display:inline-block;padding:2px 6px;background:var(--card);border:1px solid var(--border);border-radius:4px;font-size:.75rem;font-family:monospace;margin-left:4px}
+    
+    /* Loading state for status cards */
+    .status-item.loading{opacity:.6;position:relative}
+    .status-item.loading::after{content:"";position:absolute;top:50%;right:10px;width:16px;height:16px;border:2px solid var(--brand);border-right-color:transparent;border-radius:50%;animation:spin .6s linear infinite}
+    
+    /* Pulse animation for active state */
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    .pulsing{animation:pulse 2s ease-in-out infinite}
+    
+    /* Better number input styling */
+    input[type="number"]{-moz-appearance:textfield}
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+    
+    /* Info icon tooltip */
+    .info-icon{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:16px;
+      height:16px;
+      border-radius:50%;
+      background:var(--border);
+      color:var(--muted);
+      font-size:11px;
+      font-weight:bold;
+      cursor:help;
+      margin-left:6px;
+      transition:all .2s;
+      user-select:none;
+    }
+    .info-icon:hover{
+      background:var(--brand);
+      color:#fff;
+      transform:scale(1.1);
+    }
+    .info-tooltip{
+      display:none;
+      position:absolute;
+      background:var(--bg-elev);
+      border:1px solid var(--border);
+      border-radius:8px;
+      padding:10px 12px;
+      font-size:.85rem;
+      color:var(--fg);
+      line-height:1.4;
+      max-width:280px;
+      z-index:100;
+      box-shadow:0 4px 12px rgba(0,0,0,.4);
+      margin-top:4px;
+    }
+    .info-tooltip.show{display:block}
+    .info-tooltip strong{color:var(--brand)}
+    .label-with-info{display:flex;align-items:center}
   </style>
   <script defer src="./hardening.js"></script>
 
@@ -90,16 +181,47 @@
     <a href="#diag"    id="tab-diag">Diagnostics</a>
   </nav>
 
+  <!-- CONTROL / STATUS TAB -->
   <section id="page-control" class="card">
-    <h2 class="title">Controls</h2>
-    <div id="capWrap" class="cap-note">Enforced cap: <span id="capVal">none</span></div>
-    <div id="openGrid" class="actions" style="margin-top:10px">
-      <button class="btn primary" data-pct="25" onclick="openTo(25)">Open 25%</button>
-      <button class="btn primary" data-pct="50" onclick="openTo(50)">Open 50%</button>
-      <button class="btn primary" data-pct="75" onclick="openTo(75)">Open 75%</button>
-      <button class="btn primary" data-pct="100" onclick="openTo(100)">Open 100%</button>
-      <button id="btnClose"  class="btn neutral" onclick="closeDoor()">Close</button>
-      <button id="btnStatus" class="btn ghost"   onclick="getStatus()">Status</button>
+    <div class="row" style="margin-bottom:12px">
+      <h2 class="title" style="margin:0">Status</h2>
+      <span class="tiny" style="margin-left:auto" id="lastUpdate">Last updated: never</span>
+    </div>
+    <div class="status-grid">
+      <div class="status-item" id="statusConnection">
+        <div class="status-label">Connection</div>
+        <div class="status-value" id="statusConnValue">Checking...</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Last Action</div>
+        <div class="status-value" id="statusLastAction">None</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Next Scheduled</div>
+        <div class="status-value" id="statusNextSched">Not set</div>
+      </div>
+    </div>
+
+    <h2 class="title" style="margin-top:20px">Manual Control</h2>
+    <div class="grid3">
+      <button class="btn primary" onclick="openTo(25)">25%</button>
+      <button class="btn primary" onclick="openTo(50)">50%</button>
+      <button class="btn primary" onclick="openTo(75)">75%</button>
+      <button class="btn primary" onclick="openTo(100)">100%</button>
+      <button id="btnClose" class="btn neutral" onclick="closeDoor()">Close</button>
+      <button id="btnStatus" class="btn ghost" onclick="getStatus()">Refresh</button>
+    </div>
+
+    <div class="status-card" style="margin-top:14px">
+      <h3 class="title" style="font-size:.95rem;margin-bottom:10px">Custom Opening</h3>
+      <div class="grid2" style="align-items:flex-end">
+        <div>
+          <label>Percent (0-100)
+            <input type="number" id="customPercent" min="0" max="100" value="50" step="1">
+          </label>
+        </div>
+        <button id="btnCustomOpen" class="btn primary" onclick="openToCustom()">Open</button>
+      </div>
     </div>
 
     <div class="status-card" style="margin-top:14px">
@@ -113,10 +235,13 @@
     </div>
   </section>
 
+  <!-- CONFIG TAB -->
   <section id="page-config" class="card" style="display:none">
-    <h2 class="title">Automation Schedule</h2>
-    <div class="row" style="margin-bottom:6px">
-      <label><input type="radio" name="mode" value="fixed" checked> Fixed</label>
+    <div id="configAlert"></div>
+
+    <h2 class="title">Schedule Mode</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label><input type="radio" name="mode" value="fixed" checked> Fixed Times</label>
       <label><input type="radio" name="mode" value="solar"> Sunrise / Sunset</label>
     </div>
 
@@ -126,109 +251,187 @@
     </div>
 
     <div id="solarBlock" class="grid2" style="display:none">
-      <div><label>ZIP code <input id="zip" type="text" placeholder="e.g. 10001"></label></div>
+      <div><label>ZIP code <input id="zip" type="text" placeholder="33411"></label></div>
       <div><label>Country (ISO-2) <input id="countryInput" type="text" value="US"></label></div>
-      <div><label>Sunrise offset (min) <input id="sr" type="number" step="1" value="0"></label></div>
-      <div><label>Sunset offset (min) <input id="ss" type="number" step="1" value="0"></label></div>
-      <div class="subtitle" style="grid-column:1/-1">ZIP is preferred. Server geocodes ZIP offline on save.</div>
     </div>
 
-    <div class="grid2" style="margin-top:10px">
-      <div><label>Timezone (optional) <input id="tzInput" type="text" placeholder="America/New_York"></label></div>
-      <div><label>Enforced open percent (0=uncapped) <input id="openPct" type="number" min="0" max="100" step="1" value="100"></label></div>
-    </div>
-
-    <div class="row" style="margin-top:12px">
-      <button id="btnLoad"  class="btn ghost"   onclick="loadConfig()">Load</button>
-      <button id="btnSave"  class="btn primary" onclick="saveConfig()">Save</button>
-      <button id="btnApply" class="btn neutral" onclick="applyAuto()">Apply Now</button>
-    </div>
-
-    <div id="autoOut" class="status-card" style="margin-top:10px">Use Load/Save/Apply.</div>
-
-    <details class="card" style="margin-top:12px">
-      <summary class="title">Backup & Restore Config</summary>
-      <div class="subtitle" style="margin-bottom:12px">Backups are saved to a persistent location that survives uninstall</div>
-      
-      <div class="grid2" style="margin-bottom:12px">
-        <div>
-          <label>Backup Name <input id="backupName" type="text" placeholder="my-config-backup"></label>
-        </div>
-        <div style="display:flex;align-items:flex-end">
-          <button class="btn primary" onclick="backupConfig()" style="width:100%">Create Backup</button>
-        </div>
+    <div id="solarOffsets" style="display:none;margin-top:12px">
+      <h3 class="section-header">Time Offsets (minutes)</h3>
+      <div class="alert info" style="margin-bottom:10px;padding:8px 12px">
+        <strong>Positive (+)</strong> = delay (e.g., +30 opens 30 min AFTER sunrise)<br>
+        <strong>Negative (-)</strong> = advance (e.g., -30 closes 30 min BEFORE sunset)
       </div>
-
-      <div id="backupList" class="status-card" style="margin-bottom:12px">
-        Loading backups...
+      <div class="grid2">
+        <div><label>Sunrise offset <input id="sr" type="number" step="1" value="0"></label></div>
+        <div><label>Sunset offset <input id="ss" type="number" step="1" value="0"></label></div>
       </div>
+    </div>
 
-      <div id="backupOut" class="status-card">Backup operations will appear here.</div>
-    </details>
+    <div style="margin-top:16px">
+      <div class="label-with-info">
+        <label style="margin:0">Maximum Door Opening (%)</label>
+        <span class="info-icon" onclick="toggleInfo(event, 'info-maxopen')">i</span>
+      </div>
+      <input id="openPct" type="number" min="0" max="100" step="1" value="100">
+      <div id="info-maxopen" class="info-tooltip">
+        Limits how far the door opens. Set to 0 for no limit, or lower for smaller chickens (e.g., 75% for bantams).
+      </div>
+    </div>
 
-    <details class="card" style="margin-top:12px">
+    <details class="card" style="margin-top:20px" open>
       <summary class="title">Advanced Settings</summary>
       
-      <h3 style="font-size:.95rem;margin:16px 0 8px;color:var(--muted)">BLE Connection</h3>
-      <div class="grid2">
-        <div><label>Adapter <input id="bleAdapter" type="text" value="hci0"></label></div>
-        <div><label>MAC Address <input id="bleMac" type="text" placeholder="00:80:E1:22:EE:F2"></label></div>
-        <div><label>Connect Timeout (s) <input id="connectTimeout" type="number" min="5" max="30" value="14"></label></div>
-        <div><label>Min Pause After Action (s) <input id="minPause" type="number" min="0" max="10" step="0.5" value="2"></label></div>
+      <div class="alert info" style="margin-top:12px">
+        ℹ️ Clicking "Save & Apply" will automatically restart the API to apply these settings.
       </div>
 
-      <h3 style="font-size:.95rem;margin:16px 0 8px;color:var(--muted)">BLE Retry Logic</h3>
-      <div class="grid2">
-        <div><label>Retry Attempts <input id="retryAttempts" type="number" min="0" max="10" value="2"></label></div>
-        <div><label>Initial Delay (ms) <input id="retryDelay" type="number" min="100" max="2000" step="100" value="400"></label></div>
-      </div>
-
-      <h3 style="font-size:.95rem;margin:16px 0 8px;color:var(--muted)">Diagnostics Display</h3>
-      <div class="grid2">
+      <div class="grid2" style="margin-top:12px">
         <div>
-          <label>Font Family
-            <select id="diagFontFamily">
-              <option value="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace">Monospace (Default)</option>
-              <option value="system-ui, -apple-system, sans-serif">System Sans</option>
-              <option value="'Courier New', Courier, monospace">Courier</option>
-              <option value="Georgia, serif">Serif</option>
-            </select>
-          </label>
+          <div class="label-with-info">
+            <label style="margin:0">Device MAC Address</label>
+            <span class="info-icon" onclick="toggleInfo(event, 'info-mac')">i</span>
+          </div>
+          <input id="bleMac" type="text" placeholder="00:80:E1:22:EE:F2">
+          <div id="info-mac" class="info-tooltip">
+            Bluetooth address of your door opener. Find it with: <code>sudo hcitool lescan</code>
+          </div>
         </div>
-        <div><label>Font Size (px) <input id="diagFontSize" type="number" min="10" max="20" value="13"></label></div>
-        <div><label>Line Height <input id="diagLineHeight" type="number" min="1" max="2.5" step="0.1" value="1.5"></label></div>
+        <div>
+          <div class="label-with-info">
+            <label style="margin:0">Bluetooth Adapter</label>
+            <span class="info-icon" onclick="toggleInfo(event, 'info-adapter')">i</span>
+          </div>
+          <input id="bleAdapter" type="text" value="hci0">
+          <div id="info-adapter" class="info-tooltip">
+            Usually "hci0" - only change if using multiple Bluetooth adapters
+          </div>
+        </div>
+        <div>
+          <div class="label-with-info">
+            <label style="margin:0">Connection Timeout (s)</label>
+            <span class="info-icon" onclick="toggleInfo(event, 'info-timeout')">i</span>
+          </div>
+          <input id="connectTimeout" type="number" min="5" max="60" value="15">
+          <div id="info-timeout" class="info-tooltip">
+            How long to wait for BLE connection. <strong>Increase</strong> if device is far away or slow to respond.
+          </div>
+        </div>
+        <div>
+          <div class="label-with-info">
+            <label style="margin:0">Base Pulses (100% open)</label>
+            <span class="info-icon" onclick="toggleInfo(event, 'info-pulses')">i</span>
+          </div>
+          <input id="basePulses" type="number" min="1" max="50" value="14">
+          <div id="info-pulses" class="info-tooltip">
+            Number of pulses for full opening. Default: 14. Adjust if door doesn't fully open or close.
+          </div>
+        </div>
+        <div>
+          <div class="label-with-info">
+            <label style="margin:0">Pulse Interval (s)</label>
+            <span class="info-icon" onclick="toggleInfo(event, 'info-interval')">i</span>
+          </div>
+          <input id="pulseInterval" type="number" min="0.5" max="5" step="0.1" value="2.0">
+          <div id="info-interval" class="info-tooltip">
+            Delay between pulses. <strong>Increase</strong> if door motor needs more time between commands.
+          </div>
+        </div>
+        <div>
+          <div class="label-with-info">
+            <label style="margin:0">Min Pause After Action (s)</label>
+            <span class="info-icon" onclick="toggleInfo(event, 'info-pause')">i</span>
+          </div>
+          <input id="minPause" type="number" min="0" max="10" step="0.5" value="1.0">
+          <div id="info-pause" class="info-tooltip">
+            Cooldown period after operations. Prevents rapid repeated commands.
+          </div>
+        </div>
+        <div>
+          <div class="label-with-info">
+            <label style="margin:0">Retry Attempts</label>
+            <span class="info-icon" onclick="toggleInfo(event, 'info-retry')">i</span>
+          </div>
+          <input id="retryAttempts" type="number" min="0" max="10" value="3">
+          <div id="info-retry" class="info-tooltip">
+            How many times to retry failed connections. Default: 3
+          </div>
+        </div>
+        <div>
+          <div class="label-with-info">
+            <label style="margin:0">Retry Delay (ms)</label>
+            <span class="info-icon" onclick="toggleInfo(event, 'info-delay')">i</span>
+          </div>
+          <input id="retryDelay" type="number" min="100" max="5000" step="100" value="1000">
+          <div id="info-delay" class="info-tooltip">
+            Wait time between retries. Increases with each attempt (exponential backoff).
+          </div>
+        </div>
       </div>
-      
-      <div class="subtitle" style="margin-top:12px">⚠️ Changes to BLE settings require API restart to take effect.</div>
+
+      <div style="margin-top:16px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="margin:0;cursor:pointer">
+            <input type="checkbox" id="homeBeforeOpen">
+            Close door before opening (calibration)
+          </label>
+          <span class="info-icon" onclick="toggleInfo(event, 'info-home')">i</span>
+        </div>
+        <div id="info-home" class="info-tooltip">
+          Fully closes door before each open command. Ensures consistent starting position but adds time.
+        </div>
+      </div>
     </details>
 
-    <div class="card" style="margin-top:12px">
-      <h3 class="title">API Connection</h3>
-      <div class="grid2">
-        <div><label>Base URL <input id="baseUrl" type="text" placeholder="https://host.tailnet.ts.net"></label></div>
-        <div><label>Bearer Token (optional) <input id="bearer" type="password" placeholder="leave blank with Tailscale"></label></div>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button class="btn neutral" onclick="saveSettings()">Save Connection Settings</button>
-        <span class="subtitle">Saved in your browser only.</span>
-      </div>
+    <div class="row" style="margin-top:16px;gap:10px">
+      <button class="btn primary" onclick="saveAndApply()" style="flex:1">Save & Apply</button>
+      <button class="btn ghost" onclick="loadConfig()">Reset</button>
     </div>
   </section>
 
+  <!-- DIAGNOSTICS TAB -->
   <section id="page-diag" class="card" style="display:none">
     <h2 class="title">Diagnostics</h2>
-    <div class="row">
-      <button id="btnDiag" class="btn ghost" onclick="getDiag()">Refresh</button>
-      <span class="subtitle">Shows last 100 log lines.</span>
+    
+    <div class="diag-controls">
+      <button class="btn ghost" onclick="getDiag()">Refresh</button>
+      <button class="btn ghost" onclick="clearDiagDisplay()">Clear</button>
+      <button class="btn ghost" onclick="toggleAutoRefresh()">
+        <span id="autoRefreshLabel">Auto-Refresh: OFF</span>
+      </button>
+      <input type="text" id="logSearch" class="search-box" placeholder="Search logs..." oninput="filterLogs()">
+      <select id="logLevelFilter" onchange="filterLogs()" style="width:auto">
+        <option value="all">All Levels</option>
+        <option value="error">Errors</option>
+        <option value="warn">Warnings</option>
+        <option value="info">Info</option>
+      </select>
+      <button class="btn ghost" onclick="exportLogs()">Export</button>
     </div>
-    <div id="diag" class="status-card" style="white-space: pre-wrap; margin-top:10px">No diag yet.</div>
+
+    <div class="status-card">
+      <div class="row" style="margin-bottom:8px">
+        <strong>Connection:</strong> <span id="diagConn">Unknown</span>
+        <span id="diagFilters"></span>
+      </div>
+      <div id="diagStats" style="font-size:.85rem;color:var(--muted)"></div>
+    </div>
+
+    <div id="diag" class="status-card">No diagnostics loaded yet. Click Refresh.</div>
   </section>
 </main>
 
-<footer class="sticky"><div class="tiny" id="hostLabel"></div></footer>
+<footer class="sticky">
+  <div class="tiny">
+    <span id="hostLabel"></span>
+    <span style="margin:0 8px">•</span>
+    <span title="Keyboard shortcuts">
+      1-4: Open | C: Close | R: Refresh | Ctrl+1/2/3: Switch tabs
+    </span>
+  </div>
+</footer>
 
 <script>
-  // #reset support: clear app storage and hard-refresh
+  // #reset support
   (function(){
     if (location.hash === '#reset') {
       try {
@@ -245,8 +448,8 @@
     document.getElementById('tab-'+id).classList.add('active');
     document.getElementById('page-'+id).style.display='';
     if(id==='control'){ getStatus(); refreshSchedule(); }
-    if(id==='config'){ loadConfig(); listBackups(); }
-    if(id==='diag'){ applyDiagStyles(); }
+    if(id==='config'){ loadConfig(); }
+    if(id==='diag'){ getDiag(); }
   }
   window.addEventListener('hashchange',()=>{ const h=(location.hash||'#control').slice(1); showPage(h); });
   showPage((location.hash||'#control').slice(1));
@@ -262,18 +465,9 @@
   };
   hostLabel.textContent = (S.base || window.location.origin);
 
-  function saveSettings(){ 
-    const b=baseUrl.value.trim(); 
-    const t=bearer.value.trim(); 
-    if(b) S.base=b; 
-    S.token=t; 
-    hostLabel.textContent = b || window.location.origin;
-    alert('Connection settings saved'); 
-  }
-
   function headers(){ const h={'Content-Type':'application/json'}; if(S.token) h['Authorization']='Bearer '+S.token; return h; }
 
-  // Ping loop to set API badge
+  // Ping loop
   (function(){
     async function ping(){
       const url = (S.base || '') + '/healthz';
@@ -293,7 +487,7 @@
     ping(); setInterval(ping, 30000);
   })();
 
-  // Fetch with timeout + single retry
+  // Fetch with timeout + retry
   async function fetchWithHedge(url, opts={}, timeoutMs=20000){
     const doOnce = () => new Promise((resolve,reject)=>{
       const ctrl = new AbortController();
@@ -324,30 +518,60 @@
     return {time:d.toLocaleTimeString([], {hour12:false}), date:d.toLocaleDateString()};
   }
 
+  function showAlert(type, message){
+    const alert = document.getElementById('configAlert');
+    alert.innerHTML = `<div class="alert ${type}">${message}</div>`;
+    setTimeout(() => alert.innerHTML = '', 5000);
+  }
+
+  // ===== CONTROL / STATUS =====
+  
   function renderStatus(e){
-    // Show door position instead of connection boolean
-    const doorState = e && e.door_state;
-    if (doorState && typeof doorState.position_percent === 'number') {
-        const pct = doorState.position_percent;
-        const pulses = doorState.position_pulses;
-        sDoorPos.textContent = pct + '% (' + pulses + ' pulses)';
-        sDoorPos.className = pct > 0 ? 'ok' : 'dim';
+    // Connection
+    const connEl = document.getElementById('statusConnection');
+    const connValue = document.getElementById('statusConnValue');
+    if (e && e.connected) {
+      connValue.textContent = 'Connected';
+      connEl.classList.add('ok');
+      connEl.classList.remove('bad');
     } else {
-        sDoorPos.textContent = 'Unknown';
-        sDoorPos.className = '';
+      connValue.textContent = 'Disconnected';
+      connEl.classList.add('bad');
+      connEl.classList.remove('ok');
     }
 
+    // Door position
+    const doorState = e && e.door_state;
+    if (doorState && typeof doorState.position_percent === 'number') {
+      const pct = doorState.position_percent;
+      const pulses = doorState.position_pulses;
+      sDoorPos.textContent = pct + '% (' + pulses + ' pulses)';
+      sDoorPos.className = pct > 0 ? 'ok' : 'dim';
+    } else {
+      sDoorPos.textContent = 'Unknown';
+      sDoorPos.className = '';
+    }
+
+    // Last action
     const le = (e && e.last_action) || S.last;
     if (le && le.cmd) {
-        const when = fmt(le.at);
-        const verb = le.cmd.charAt(0).toUpperCase() + le.cmd.slice(1);
-        const pct = (le.cmd === 'open' && typeof le.requested_percent === 'number') ? (' ' + le.requested_percent + '%') : '';
-        const res = le.ok ? 'Succeeded' : 'Failed';
-        const resClass = le.ok ? 'ok' : 'bad';
-        const src = le.source ? ' <span class="dim">(' + le.source.replace(/_/g, ' ') + ')</span>' : '';
-        sLast.innerHTML = `${verb}${pct} <span class="${resClass}">${res}</span> at ${when.time} on ${when.date}${src}`;
+      const when = fmt(le.at);
+      const verb = le.cmd.charAt(0).toUpperCase() + le.cmd.slice(1);
+      const pct = (le.cmd === 'open' && typeof le.requested_percent === 'number') ? (' ' + le.requested_percent + '%') : '';
+      const res = le.ok ? 'Succeeded' : 'Failed';
+      const resClass = le.ok ? 'ok' : 'bad';
+      
+      let src = '';
+      if (le.source) {
+        const sourceText = le.source === 'scheduled' ? 'scheduled' : 'manual';
+        src = ' <span class="dim">(' + sourceText + ')</span>';
+      }
+      
+      sLast.innerHTML = `${verb}${pct} <span class="${resClass}">${res}</span> at ${when.time}${src}`;
+      document.getElementById('statusLastAction').innerHTML = `${verb}${pct}${src}`;
     } else {
-        sLast.textContent = 'No actions yet';
+      sLast.textContent = 'No actions yet';
+      document.getElementById('statusLastAction').textContent = 'None';
     }
   }
 
@@ -356,8 +580,15 @@
       const j = await api('/status');
       if (j.last_action) S.last = j.last_action;
       renderStatus(j);
+      
+      // Update last refresh time
+      const now = new Date();
+      document.getElementById('lastUpdate').textContent = 
+        'Last updated: ' + now.toLocaleTimeString();
     } catch(e){
       renderStatus({connected:false, last_action:S.last});
+      document.getElementById('lastUpdate').textContent = 
+        'Last updated: failed';
     }
   }
 
@@ -367,35 +598,72 @@
       sSched.textContent = (j.mode || 'Unknown');
       sOpen.textContent  = j.open_time || '--:--';
       sClose.textContent = j.close_time || '--:--';
-      capVal.textContent = (j.open_percent_cap > 0) ? (j.open_percent_cap + '%') : 'none';
+      
+      const nextEl = document.getElementById('statusNextSched');
+      if (j.next_scheduled) {
+        const d = new Date(j.next_scheduled);
+        nextEl.textContent = d.toLocaleString();
+      } else {
+        nextEl.textContent = 'Not set';
+      }
     }catch(_){
-      sSched.textContent = 'Unknown'; sOpen.textContent='--:--'; sClose.textContent='--:--';
+      sSched.textContent = 'Unknown'; 
+      sOpen.textContent='--:--'; 
+      sClose.textContent='--:--';
+      document.getElementById('statusNextSched').textContent = 'Not set';
     }
   }
 
-  // Optimistic UI update
   function showOptimisticState(cmd, pct){
     const optimistic = {
       cmd: cmd,
       effective_percent: pct,
       ok: null,
-      at: new Date().toISOString()
+      at: new Date().toISOString(),
+      source: 'api'
     };
     S.last = optimistic;
     const verb = cmd.charAt(0).toUpperCase() + cmd.slice(1);
     const pctStr = (cmd === 'open' && pct) ? (' ' + pct + '%') : '';
-    sLast.innerHTML = `${verb}${pctStr} <span class="warn">pending...</span> at ${fmt(optimistic.at).time}`;
+    sLast.innerHTML = `${verb}${pctStr} <span class="warn">pending...</span>`;
+    document.getElementById('statusLastAction').innerHTML = `${verb}${pctStr} <span class="dim">(manual)</span>`;
   }
 
   function setLoading(el, on){ el.classList.toggle('loading', !!on); el.disabled = !!on; }
 
   async function openTo(pct){
-    const btn = document.querySelector('.btn.primary[data-pct="'+pct+'"]');
+    const btn = event.target;
     setLoading(btn, true);
     showOptimisticState('open', pct);
     
     try {
       const result = await api('/open?percent=' + encodeURIComponent(pct), {method:'POST', timeoutMs:30000});
+      if (result.last_event) {
+        S.last = result.last_event;
+        renderStatus({connected:true, last_event:result.last_event, door_state:result.door_state});
+      }
+    } catch(e) {
+      console.error('Open command error:', e);
+      sLast.innerHTML += ' <span class="warn">(error: ' + e.message + ')</span>';
+    }
+    
+    setLoading(btn, false);
+    setTimeout(getStatus, 2000);
+  }
+  
+  async function openToCustom() {
+    const value = parseInt(document.getElementById('customPercent').value);
+    if (isNaN(value) || value < 0 || value > 100) {
+      alert('Please enter a valid percentage (0-100)');
+      return;
+    }
+    
+    const btn = document.getElementById('btnCustomOpen');
+    setLoading(btn, true);
+    showOptimisticState('open', value);
+    
+    try {
+      const result = await api('/open?percent=' + encodeURIComponent(value), {method:'POST', timeoutMs:30000});
       if (result.last_event) {
         S.last = result.last_event;
         renderStatus({connected:true, last_event:result.last_event, door_state:result.door_state});
@@ -429,7 +697,8 @@
     setTimeout(getStatus, 2000);
   }
 
-  // Config I/O - now uses unified /config endpoint
+  // ===== CONFIG =====
+  
   let currentConfig = {};
   
   async function loadConfig(){
@@ -439,72 +708,68 @@
       
       const auto = cfg.automation || {};
       const ble = cfg.ble || {};
-      const ui = cfg.ui || {};
       
-      // Automation
-      (auto.mode==='solar' ? solarBlock : fixedBlock).style.display = '';
-      (auto.mode==='solar' ? fixedBlock : solarBlock).style.display = 'none';
-      document.querySelectorAll('input[name="mode"]').forEach(r=>r.checked = (r.value===auto.mode));
+      // Mode
+      const isSolar = auto.mode === 'solar';
+      document.querySelector('input[name="mode"][value="' + (isSolar ? 'solar' : 'fixed') + '"]').checked = true;
+      toggleModeFields();
       
+      // Fixed times
       if (auto.fixed){ 
         fixOpen.value = auto.fixed.open; 
         fixClose.value = auto.fixed.close; 
       }
+      
+      // Solar
       if (auto.solar){ 
         sr.value = auto.solar.sunrise_offset_min||0; 
         ss.value = auto.solar.sunset_offset_min||0; 
       }
       if (auto.location){ 
-        // Restore ZIP code if it was saved
         zip.value = auto.location.zip || '';
         countryInput.value = auto.location.country || 'US';
       }
-      if (auto.timezone) tzInput.value = auto.timezone;
+      
       openPct.value = auto.open_percent ?? 100;
       
       // BLE
       bleAdapter.value = ble.adapter || 'hci0';
       bleMac.value = ble.mac || '';
-      connectTimeout.value = ble.connect_timeout || 14;
-      minPause.value = ble.min_pause_after_action || 2;
-      retryAttempts.value = ble.retry_attempts || 2;
-      retryDelay.value = ble.retry_initial_delay_ms || 400;
+      connectTimeout.value = ble.connect_timeout || 15;
+      basePulses.value = ble.base_pulses || 14;
+      pulseInterval.value = ble.pulse_interval || 2.0;
+      minPause.value = ble.min_pause_after_action || 1.0;
+      homeBeforeOpen.checked = ble.home_before_open || false;
+      retryAttempts.value = ble.retry_attempts || 3;
+      retryDelay.value = ble.retry_initial_delay_ms || 1000;
       
-      // UI
-      diagFontFamily.value = ui.diag_font_family || 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace';
-      diagFontSize.value = parseInt(ui.diag_font_size) || 13;
-      diagLineHeight.value = parseFloat(ui.diag_line_height) || 1.5;
-      
-      applyDiagStyles();
-      
-      document.getElementById('autoOut').textContent = 'Config loaded successfully.';
+      showAlert('success', 'Config loaded successfully');
       await refreshSchedule();
     }catch(e){ 
-      document.getElementById('autoOut').textContent = 'Load failed: ' + e.message; 
+      showAlert('error', 'Load failed: ' + e.message);
     }
   }
 
-  async function saveConfig(){
+  async function saveAndApply(){
+    if (!confirm('Save configuration and restart API? The page will reload.')) return;
+    
     const mode = document.querySelector('input[name="mode"]:checked').value;
     
     const payload = {
       automation: {
         mode: mode,
-        open_percent: parseInt(openPct.value,10) || 0,
-        timezone: tzInput.value.trim() || ""
+        open_percent: parseInt(openPct.value,10) || 0
       },
       ble: {
         adapter: bleAdapter.value.trim(),
         mac: bleMac.value.trim(),
-        connect_timeout: parseInt(connectTimeout.value,10) || 14,
-        min_pause_after_action: parseFloat(minPause.value) || 2,
-        retry_attempts: parseInt(retryAttempts.value,10) || 2,
-        retry_initial_delay_ms: parseInt(retryDelay.value,10) || 400
-      },
-      ui: {
-        diag_font_family: diagFontFamily.value,
-        diag_font_size: diagFontSize.value + 'px',
-        diag_line_height: diagLineHeight.value
+        connect_timeout: parseInt(connectTimeout.value,10) || 15,
+        base_pulses: parseInt(basePulses.value,10) || 14,
+        pulse_interval: parseFloat(pulseInterval.value) || 2.0,
+        min_pause_after_action: parseFloat(minPause.value) || 1.0,
+        home_before_open: homeBeforeOpen.checked,
+        retry_attempts: parseInt(retryAttempts.value,10) || 3,
+        retry_initial_delay_ms: parseInt(retryDelay.value,10) || 1000
       }
     };
     
@@ -527,107 +792,41 @@
     }
     
     try{
-      const j = await api('/config', {method:'PUT', body: payload});
-      currentConfig = j.saved || currentConfig;
-      document.getElementById('autoOut').textContent = 'Config saved successfully.';
-      applyDiagStyles();
-      await refreshSchedule();
-    }catch(e){ 
-      document.getElementById('autoOut').textContent = 'Save failed: ' + e.message; 
-    }
-  }
-
-  async function applyAuto(){
-    try{
+      // Save config
+      await api('/config', {method:'PUT', body: payload});
+      showAlert('info', 'Config saved. Applying schedule and restarting API...');
+      
+      // Apply schedule
       await api('/automation/apply', {method:'POST'});
-      document.getElementById('autoOut').textContent = 'Apply triggered - timers will update.';
+      
+      // Restart API
+      await api('/restart', {method:'POST'});
+      
+      showAlert('success', 'Configuration applied. Reloading in 3 seconds...');
+      setTimeout(() => window.location.reload(), 3000);
     }catch(e){ 
-      document.getElementById('autoOut').textContent = 'Apply failed: ' + e.message; 
+      showAlert('error', 'Save/Apply failed: ' + e.message);
     }
   }
 
-  // Apply diag font styles from config
-  function applyDiagStyles(){
-    const diagEl = document.getElementById('diag');
-    if (!diagEl) return;
+  function toggleModeFields() {
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    const isSolar = mode === 'solar';
     
-    const ui = currentConfig.ui || {};
-    diagEl.style.fontFamily = ui.diag_font_family || 'ui-monospace, monospace';
-    diagEl.style.fontSize = ui.diag_font_size || '13px';
-    diagEl.style.lineHeight = ui.diag_line_height || '1.5';
+    solarBlock.style.display = isSolar ? '' : 'none';
+    fixedBlock.style.display = isSolar ? 'none' : '';
+    solarOffsets.style.display = isSolar ? '' : 'none';
   }
 
-  // Mode toggle wiring
   document.querySelectorAll('input[name="mode"]').forEach(r=>{
-    r.addEventListener('change',()=>{
-      const mode = document.querySelector('input[name="mode"]:checked').value;
-      solarBlock.style.display = (mode==='solar' ? '' : 'none');
-      fixedBlock.style.display = (mode==='solar' ? 'none' : '');
-    });
+    r.addEventListener('change', toggleModeFields);
   });
 
-  // Backup & Restore Functions
-  async function backupConfig(){
-    const name = document.getElementById('backupName').value.trim() || 'unnamed-backup';
-    try {
-      const j = await api('/config/backup', {method:'POST', body: { name: name }});
-      document.getElementById('backupOut').textContent = 'Backup created: ' + j.name;
-      await listBackups();
-    } catch(e) {
-      document.getElementById('backupOut').textContent = 'Backup failed: ' + e.message;
-    }
-  }
-
-  async function restoreConfig(name){
-    if (!confirm('Restore config from backup "' + name + '"? This will overwrite current settings.')) return;
-    try {
-      await api('/config/restore', {method:'POST', body: { name: name }});
-      document.getElementById('backupOut').textContent = 'Config restored from: ' + name;
-      await loadConfig();
-    } catch(e) {
-      document.getElementById('backupOut').textContent = 'Restore failed: ' + e.message;
-    }
-  }
-
-  async function deleteBackup(name){
-    if (!confirm('Delete backup "' + name + '"? This cannot be undone.')) return;
-    try {
-      await api('/config/backup', {method:'DELETE', body: { name: name }});
-      document.getElementById('backupOut').textContent = 'Deleted backup: ' + name;
-      await listBackups();
-    } catch(e) {
-      document.getElementById('backupOut').textContent = 'Delete failed: ' + e.message;
-    }
-  }
-
-  async function listBackups(){
-    try {
-      const j = await api('/config/backups');
-      const list = j.backups || [];
-      if (list.length === 0) {
-        document.getElementById('backupList').textContent = 'No backups found.';
-        return;
-      }
-      const html = list.map(b => {
-        const date = new Date(b.timestamp * 1000).toLocaleString();
-        return `
-          <div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <div style="flex:1">
-              <strong>${b.name}</strong>
-              <div style="font-size:.85em;color:var(--muted)">${date}</div>
-            </div>
-            <button class="btn ghost" style="padding:6px 12px" onclick="restoreConfig('${b.name}')">Restore</button>
-            <button class="btn ghost" style="padding:6px 12px" onclick="deleteBackup('${b.name}')">Delete</button>
-          </div>
-        `;
-      }).join('');
-      document.getElementById('backupList').innerHTML = html;
-    } catch(e) {
-      document.getElementById('backupList').textContent = 'Failed to list backups: ' + e.message;
-    }
-  }
-
-  // Diagnostics
+  // ===== DIAGNOSTICS =====
+  
+  let autoRefreshInterval = null;
+  let allLogLines = [];
+  
   async function getDiag(){
     const box = document.getElementById('diag');
     try {
@@ -637,37 +836,196 @@
       });
       const text = await res.text();
       if (!res.ok) {
-        box.textContent = 'Error ' + res.status + '\n' + (text || '(no body)');
+        box.innerHTML = '<div class="log-line error">Error ' + res.status + ': ' + (text || '(no body)') + '</div>';
         return;
       }
-      try {
-        const j = JSON.parse(text||'{}');
-        const lines = [];
-        lines.push('connected: ' + (j.connected === true ? 'true' : (j.connected === false ? 'false' : 'unknown')));
-        if (j.config)  lines.push('config: ' + JSON.stringify(j.config));
-        if (j.status)  lines.push('status: ' + JSON.stringify(j.status));
-        if (j.logs && Array.isArray(j.logs)) {
-          lines.push('');
-          lines.push('== TAIL LOG ==');
-          j.logs.forEach(e => lines.push(`[${e.ts}] ${e.msg}`));
-        }
-        box.textContent = lines.join('\n');
-      } catch(parseErr) {
-        box.textContent = 'Non-JSON response from /diag:\n' + text;
+      
+      const j = JSON.parse(text||'{}');
+      
+      // Update connection status
+      document.getElementById('diagConn').innerHTML = j.connected === true 
+        ? '<span class="ok">Connected</span>' 
+        : '<span class="bad">Disconnected</span>';
+      
+      // Parse and display logs
+      allLogLines = [];
+      if (j.logs && Array.isArray(j.logs)) {
+        allLogLines = j.logs.map(e => ({
+          ts: e.ts || '',
+          msg: e.msg || '',
+          level: detectLogLevel(e.msg)
+        }));
+        
+        // Show stats
+        const errorCount = allLogLines.filter(l => l.level === 'error').length;
+        const warnCount = allLogLines.filter(l => l.level === 'warn').length;
+        const infoCount = allLogLines.filter(l => l.level === 'info').length;
+        
+        document.getElementById('diagStats').innerHTML = 
+          `Total: ${allLogLines.length} | ` +
+          `<span class="bad">Errors: ${errorCount}</span> | ` +
+          `<span class="warn">Warnings: ${warnCount}</span> | ` +
+          `Info: ${infoCount}`;
       }
+      
+      filterLogs();
+      
     } catch (e) {
-      box.textContent = 'Fetch failed: ' + (e && e.message || e);
+      box.innerHTML = '<div class="log-line error">Fetch failed: ' + (e && e.message || e) + '</div>';
     }
   }
+  
+  function detectLogLevel(msg) {
+    const lower = msg.toLowerCase();
+    if (lower.includes('error') || lower.includes('failed') || lower.includes('exception')) return 'error';
+    if (lower.includes('warn') || lower.includes('warning')) return 'warn';
+    if (lower.includes('info') || lower.includes('success')) return 'info';
+    return 'info';
+  }
+  
+  function filterLogs() {
+    const searchTerm = document.getElementById('logSearch').value.toLowerCase();
+    const levelFilter = document.getElementById('logLevelFilter').value;
+    
+    let filtered = allLogLines;
+    
+    // Filter by level
+    if (levelFilter !== 'all') {
+      filtered = filtered.filter(l => l.level === levelFilter);
+    }
+    
+    // Filter by search term
+    if (searchTerm) {
+      filtered = filtered.filter(l => 
+        l.msg.toLowerCase().includes(searchTerm) || 
+        l.ts.toLowerCase().includes(searchTerm)
+      );
+    }
+    
+    // Render
+    const box = document.getElementById('diag');
+    if (filtered.length === 0) {
+      box.innerHTML = '<div class="log-line">No logs match your filters.</div>';
+      return;
+    }
+    
+    const html = filtered.map(l => {
+      return `<div class="log-line ${l.level}">` +
+        `<span class="log-timestamp">[${l.ts}]</span>` +
+        `<span class="log-level ${l.level}">${l.level.toUpperCase()}</span> ` +
+        escapeHtml(l.msg) +
+        `</div>`;
+    }).join('');
+    
+    box.innerHTML = html;
+    
+    // Update filter badges
+    let badges = '';
+    if (levelFilter !== 'all') {
+      badges += `<span class="filter-badge ${levelFilter}">${levelFilter}</span>`;
+    }
+    if (searchTerm) {
+      badges += `<span class="filter-badge info">search: "${searchTerm}"</span>`;
+    }
+    document.getElementById('diagFilters').innerHTML = badges;
+  }
+  
+  function clearDiagDisplay() {
+    document.getElementById('diag').innerHTML = '<div class="log-line">Diagnostics cleared. Click Refresh to reload.</div>';
+    allLogLines = [];
+    document.getElementById('diagStats').innerHTML = '';
+    document.getElementById('diagFilters').innerHTML = '';
+  }
+  
+  function toggleAutoRefresh() {
+    if (autoRefreshInterval) {
+      clearInterval(autoRefreshInterval);
+      autoRefreshInterval = null;
+      document.getElementById('autoRefreshLabel').textContent = 'Auto-Refresh: OFF';
+    } else {
+      autoRefreshInterval = setInterval(getDiag, 5000);
+      document.getElementById('autoRefreshLabel').textContent = 'Auto-Refresh: ON';
+      getDiag(); // Immediate refresh
+    }
+  }
+  
+  function exportLogs() {
+    const text = allLogLines.map(l => `[${l.ts}] ${l.level.toUpperCase()} ${l.msg}`).join('\n');
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `coopdoor-logs-${new Date().toISOString()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  
+  // Info tooltip toggle
+  function toggleInfo(event, tooltipId) {
+    event.stopPropagation();
+    const tooltip = document.getElementById(tooltipId);
+    const wasVisible = tooltip.classList.contains('show');
+    
+    // Hide all tooltips
+    document.querySelectorAll('.info-tooltip').forEach(t => t.classList.remove('show'));
+    
+    // Toggle this one
+    if (!wasVisible) {
+      tooltip.classList.add('show');
+      
+      // Position tooltip
+      const icon = event.target;
+      const rect = icon.getBoundingClientRect();
+      tooltip.style.position = 'absolute';
+      tooltip.style.left = (rect.left - 10) + 'px';
+      tooltip.style.top = (rect.bottom + 4) + 'px';
+    }
+  }
+  
+  // Close tooltips when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.classList.contains('info-icon')) {
+      document.querySelectorAll('.info-tooltip').forEach(t => t.classList.remove('show'));
+    }
+  });
 
-  // Initial fetches
+  // Initial load
   getStatus(); 
   refreshSchedule();
   
-  // Load settings into connection fields
-  if (S.base) baseUrl.value = S.base;
-  if (S.token) bearer.value = S.token;
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    // Only if not typing in an input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    
+    // Number keys 1-4 for quick open percentages
+    if (e.key === '1') openTo(25);
+    if (e.key === '2') openTo(50);
+    if (e.key === '3') openTo(75);
+    if (e.key === '4') openTo(100);
+    
+    // 'c' for close
+    if (e.key === 'c' || e.key === 'C') closeDoor();
+    
+    // 'r' for refresh status
+    if (e.key === 'r' || e.key === 'R') {
+      e.preventDefault();
+      getStatus();
+    }
+    
+    // Tab switching: Ctrl+1, Ctrl+2, Ctrl+3
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === '1') { e.preventDefault(); location.hash = 'control'; }
+      if (e.key === '2') { e.preventDefault(); location.hash = 'config'; }
+      if (e.key === '3') { e.preventDefault(); location.hash = 'diag'; }
+    }
+  });
 </script>
-<script defer src="./hardening.js"></script>
 </body>
 </html>
