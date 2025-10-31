@@ -10,16 +10,15 @@ from door_state import (
     percent_to_pulses, save_last_action, update_door_position, 
     get_door_state, get_last_action
 )
-from shared_config import DEVICE_CONFIG_PATH
+from shared_config import DEVICE_CONFIG_PATH, DAEMON_PATH, VENV_PYTHON
 
 HOME = Path.home()
 RUNTIME = HOME / ".cache" / "coopdoor"
 SOCK = RUNTIME / "door.sock"
 PID = RUNTIME / "coopd.pid"
 LOG = RUNTIME / "coopd.log"
-CFG_PATH = HOME / ".config" / "coopdoor" / "config.json"
-DAEMON = Path("/opt/coopdoor/coopd.py")
-VENV_PY = Path("/opt/coopdoor/.venv/bin/python3")
+# Use system config path from shared_config
+CFG_PATH = DEVICE_CONFIG_PATH
 
 DEFAULT_CFG = {
   "mac": "00:80:E1:22:EE:F2",
@@ -83,7 +82,7 @@ def start_daemon() -> bool:
         return True
     if _reuse_existing_if_alive(int(cfg.get("connect_timeout", 15))):
         return True
-    cmd = [str(VENV_PY), str(DAEMON),
+    cmd = [str(VENV_PYTHON), str(DAEMON_PATH),
            "--mac", cfg["mac"],
            "--adapter", cfg.get("adapter","hci0"),
            "--connect-timeout", str(int(cfg.get("connect_timeout", 15))),
@@ -106,6 +105,9 @@ def stop_daemon() -> None:
 
 def _open_percent(percent: float) -> None:
     cfg = load_cfg()
+    retry_attempts = int(cfg.get("retry_attempts", 3))
+    retry_delay_ms = int(cfg.get("retry_initial_delay_ms", 1000))
+    
     print("Connecting to device...")
     if not start_daemon():
         print(f"Failed to connect within {cfg.get('connect_timeout',15)}s.")
@@ -127,37 +129,54 @@ def _open_percent(percent: float) -> None:
     
     print(f"Opening {pct:.1f}% → {pulses} pulse(s) @ {pint:.2f}s")
     total = max(6.0, pulses*pint + 3.0)
-    res = rpc({"cmd":"open_pulses", "pulses": pulses, "interval": pint, "one_shot": True}, timeout=total)
     
-    success = res and res.get("started", False)
+    # Try open with retries
+    attempt = 0
+    last_error = None
     
-    # Persist state and action
-    if success:
-        update_door_position(pulses, base)
-        save_last_action({
-            "cmd": "open",
-            "requested_percent": int(pct),
-            "actual_pulses": pulses,
-            "delta_pulses": pulses,
-            "ok": True,
-            "at": datetime.now(timezone.utc).isoformat(),
-            "source": "cli_manual",
-            "error": None
-        })
-        print("Started.")
-    else:
-        save_last_action({
-            "cmd": "open",
-            "requested_percent": int(pct),
-            "actual_pulses": 0,
-            "delta_pulses": 0,
-            "ok": False,
-            "at": datetime.now(timezone.utc).isoformat(),
-            "source": "cli_manual",
-            "error": str(res) if res else "No response"
-        })
-        print(res if res else "Disconnected")
-        sys.exit(1)
+    while attempt <= retry_attempts:
+        if attempt > 0:
+            delay = (retry_delay_ms / 1000.0) * (attempt)  # Exponential backoff
+            print(f"Retry attempt {attempt} after {delay:.1f}s...")
+            time.sleep(delay)
+        
+        res = rpc({"cmd":"open_pulses", "pulses": pulses, "interval": pint, "one_shot": True}, timeout=total)
+        
+        if res and res.get("started", False):
+            # Success!
+            update_door_position(pulses, base)
+            save_last_action({
+                "cmd": "open",
+                "requested_percent": int(pct),
+                "actual_pulses": pulses,
+                "delta_pulses": pulses,
+                "ok": True,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "source": "cli_manual",
+                "error": None
+            })
+            if attempt > 0:
+                print(f"Started (succeeded on attempt {attempt + 1}).")
+            else:
+                print("Started.")
+            return
+        
+        last_error = str(res) if res else "No response"
+        attempt += 1
+    
+    # All retries exhausted
+    save_last_action({
+        "cmd": "open",
+        "requested_percent": int(pct),
+        "actual_pulses": 0,
+        "delta_pulses": 0,
+        "ok": False,
+        "at": datetime.now(timezone.utc).isoformat(),
+        "source": "cli_manual",
+        "error": f"Failed after {retry_attempts + 1} attempts: {last_error}"
+    })
+    print(f"Failed after {retry_attempts + 1} attempts: {last_error}")
+    sys.exit(1)
 
 def _open_pulses(n: int, interval: float | None) -> None:
     cfg = load_cfg()
@@ -183,40 +202,62 @@ def _open_pulses(n: int, interval: float | None) -> None:
 
 def _close() -> None:
     cfg = load_cfg()
+    retry_attempts = int(cfg.get("retry_attempts", 3))
+    retry_delay_ms = int(cfg.get("retry_initial_delay_ms", 1000))
+    
     print("Connecting to device...")
     if not start_daemon():
         print(f"Failed to connect within {cfg.get('connect_timeout',15)}s.")
         sys.exit(1)
     print("Connected")
-    res = rpc({"cmd":"close", "one_shot": True}, timeout=5.0)
     
-    success = res is not None
-    if success:
-        update_door_position(0)  # Door is closed = 0 pulses
-        save_last_action({
-            "cmd": "close",
-            "requested_percent": None,
-            "actual_pulses": 0,
-            "delta_pulses": 0,
-            "ok": True,
-            "at": datetime.now(timezone.utc).isoformat(),
-            "source": "cli_manual",
-            "error": None
-        })
-        print("Close sent.")
-    else:
-        save_last_action({
-            "cmd": "close",
-            "requested_percent": None,
-            "actual_pulses": 0,
-            "delta_pulses": 0,
-            "ok": False,
-            "at": datetime.now(timezone.utc).isoformat(),
-            "source": "cli_manual",
-            "error": "No response"
-        })
-        print("Disconnected")
-        sys.exit(1)
+    # Try close with retries
+    attempt = 0
+    last_error = None
+    
+    while attempt <= retry_attempts:
+        if attempt > 0:
+            delay = (retry_delay_ms / 1000.0) * (attempt)  # Exponential backoff
+            print(f"Retry attempt {attempt} after {delay:.1f}s...")
+            time.sleep(delay)
+        
+        res = rpc({"cmd":"close", "one_shot": True}, timeout=5.0)
+        
+        if res is not None:
+            # Success!
+            update_door_position(0)  # Door is closed = 0 pulses
+            save_last_action({
+                "cmd": "close",
+                "requested_percent": None,
+                "actual_pulses": 0,
+                "delta_pulses": 0,
+                "ok": True,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "source": "cli_manual",
+                "error": None
+            })
+            if attempt > 0:
+                print(f"Close sent (succeeded on attempt {attempt + 1}).")
+            else:
+                print("Close sent.")
+            return
+        
+        last_error = "No response"
+        attempt += 1
+    
+    # All retries exhausted
+    save_last_action({
+        "cmd": "close",
+        "requested_percent": None,
+        "actual_pulses": 0,
+        "delta_pulses": 0,
+        "ok": False,
+        "at": datetime.now(timezone.utc).isoformat(),
+        "source": "cli_manual",
+        "error": f"Failed after {retry_attempts + 1} attempts: {last_error}"
+    })
+    print(f"Failed after {retry_attempts + 1} attempts")
+    sys.exit(1)
 
 def _config_show() -> None:
     print(json.dumps(load_cfg(), indent=2))
@@ -245,7 +286,7 @@ def _diag(verbose: bool) -> None:
     print("\n== TAIL LOG ==")
     try:
         if LOG.exists():
-            lines = LOG.read_text().splitlines()[-60:]
+            lines = LOG.read_text().splitlines()[-200:]
             for ln in lines: print(ln)
         else:
             print("(no log)")
