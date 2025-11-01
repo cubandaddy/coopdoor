@@ -624,6 +624,23 @@
     }
   }
 
+  // Convert 24-hour time (HH:MM) to 12-hour AM/PM format
+  function formatTime12Hour(time24) {
+    if (!time24 || time24 === '--:--') return time24;
+    
+    try {
+      const [hours, minutes] = time24.split(':').map(Number);
+      if (isNaN(hours) || isNaN(minutes)) return time24;
+      
+      const period = hours >= 12 ? 'PM' : 'AM';
+      const hours12 = hours % 12 || 12; // Convert 0 to 12
+      
+      return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+    } catch(e) {
+      return time24; // Return original if parsing fails
+    }
+  }
+
   async function refreshSchedule(){
     try{
       const j = await api('/schedule/preview');
@@ -631,9 +648,9 @@
       // Update mode
       document.getElementById('statusMode').textContent = (j.mode || 'Unknown');
       
-      // Update times
-      document.getElementById('statusOpenTime').textContent = j.open_time || '--:--';
-      document.getElementById('statusCloseTime').textContent = j.close_time || '--:--';
+      // Update times with AM/PM format
+      document.getElementById('statusOpenTime').textContent = formatTime12Hour(j.open_time) || '--:--';
+      document.getElementById('statusCloseTime').textContent = formatTime12Hour(j.close_time) || '--:--';
       
       // Update next scheduled - handle various formats
       const nextEl = document.getElementById('statusNextSched');
