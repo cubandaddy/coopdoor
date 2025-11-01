@@ -121,7 +121,7 @@ def _compute_today_times(cfg: dict[str, Any]) -> tuple[str, str, str]:
     fx = cfg.get("fixed") or {"open": "07:00", "close": "20:30"}
     return str(fx["open"]), str(fx["close"]), tz
 
-def _get_next_scheduled() -> str | None:
+def _get_next_scheduled() -> dict | None:
     """Get the next scheduled timer from systemctl list-timers."""
     try:
         rc, out, err = run_command(["systemctl", "list-timers", "--all"], timeout=5.0)
@@ -130,34 +130,47 @@ def _get_next_scheduled() -> str | None:
         
         # Parse systemctl output to find coopdoor timers
         lines = out.splitlines()
-        next_times = []
+        next_timers = []
         
         for line in lines:
-            if "coopdoor-open.timer" in line or "coopdoor-close.timer" in line:
-                # Extract the datetime from the NEXT column
-                # Format: "Sat 2025-11-01 07:31:04 EDT"
-                parts = line.split()
-                if len(parts) >= 5:
-                    try:
-                        # Parse: Sat 2025-11-01 07:31:04 EDT
-                        date_str = f"{parts[1]} {parts[2]}"  # "2025-11-01 07:31:04"
-                        timezone_str = parts[3] if len(parts) > 3 else "UTC"  # "EDT"
-                        
-                        # Convert to ISO 8601 format for JavaScript
-                        # Use the system timezone from the config
-                        tz = system_timezone() or "UTC"
-                        from zoneinfo import ZoneInfo
-                        dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
-                        dt = dt.replace(tzinfo=ZoneInfo(tz))
-                        
-                        next_times.append(dt)
-                    except Exception:
-                        continue
+            action = None
+            if "coopdoor-open.timer" in line:
+                action = "open"
+            elif "coopdoor-close.timer" in line:
+                action = "close"
+            else:
+                continue
+            
+            # Extract the datetime from the NEXT column
+            # Format: "Sat 2025-11-01 07:31:04 EDT"
+            parts = line.split()
+            if len(parts) >= 5:
+                try:
+                    # Parse: Sat 2025-11-01 07:31:04 EDT
+                    date_str = f"{parts[1]} {parts[2]}"  # "2025-11-01 07:31:04"
+                    
+                    # Convert to ISO 8601 format for JavaScript
+                    # Use the system timezone from the config
+                    tz = system_timezone() or "UTC"
+                    from zoneinfo import ZoneInfo
+                    dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+                    dt = dt.replace(tzinfo=ZoneInfo(tz))
+                    
+                    next_timers.append({
+                        "time": dt.isoformat(),
+                        "action": action,
+                        "datetime": dt
+                    })
+                except Exception:
+                    continue
         
-        # Return the soonest time in ISO format
-        if next_times:
-            next_dt = min(next_times)
-            return next_dt.isoformat()
+        # Return the soonest timer (without the datetime object)
+        if next_timers:
+            next_timer = min(next_timers, key=lambda x: x["datetime"])
+            return {
+                "time": next_timer["time"],
+                "action": next_timer["action"]
+            }
         
         return None
     except Exception:
