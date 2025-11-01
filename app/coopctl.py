@@ -143,7 +143,11 @@ def _open_percent(percent: float) -> None:
         res = rpc({"cmd":"open_pulses", "pulses": pulses, "interval": pint, "one_shot": True}, timeout=total)
         
         if res and res.get("started", False):
-            # Success!
+            # Success! Now wait for the motor operation to complete
+            operation_time = pulses * pint + 1.0  # All pulses + 1 second buffer
+            print(f"Motor running... (will take ~{operation_time:.0f}s)")
+            time.sleep(operation_time)
+            
             update_door_position(pulses, base)
             save_last_action({
                 "cmd": "open",
@@ -156,9 +160,9 @@ def _open_percent(percent: float) -> None:
                 "error": None
             })
             if attempt > 0:
-                print(f"Started (succeeded on attempt {attempt + 1}).")
+                print(f"Completed (succeeded on attempt {attempt + 1}).")
             else:
-                print("Started.")
+                print("Completed.")
             return
         
         last_error = str(res) if res else "No response"
@@ -193,9 +197,14 @@ def _open_pulses(n: int, interval: float | None) -> None:
     
     success = res and res.get("started", False)
     if success:
+        # Wait for operation to complete
+        operation_time = n * pint + 1.0
+        print(f"Motor running... (will take ~{operation_time:.0f}s)")
+        time.sleep(operation_time)
+        
         base = int(cfg.get("base_pulses", 14))
         update_door_position(n, base)
-        print("Started.")
+        print("Completed.")
     else:
         print(res if res else "Disconnected")
         sys.exit(1)
@@ -224,7 +233,10 @@ def _close() -> None:
         res = rpc({"cmd":"close", "one_shot": True}, timeout=5.0)
         
         if res is not None:
-            # Success!
+            # Success! Wait for close operation (usually ~2-3 seconds)
+            print("Motor running... (will take ~3s)")
+            time.sleep(3.0)
+            
             update_door_position(0)  # Door is closed = 0 pulses
             save_last_action({
                 "cmd": "close",
@@ -237,9 +249,9 @@ def _close() -> None:
                 "error": None
             })
             if attempt > 0:
-                print(f"Close sent (succeeded on attempt {attempt + 1}).")
+                print(f"Completed (succeeded on attempt {attempt + 1}).")
             else:
-                print("Close sent.")
+                print("Completed.")
             return
         
         last_error = "No response"
