@@ -328,7 +328,14 @@ def preview_schedule(request: Request) -> JSONResponse:
     try: o, c, tz = _compute_today_times(cfg)
     except HTTPException as e: return JSONResponse({"error": e.detail, "timezone": system_timezone(), "mode": cfg.get("mode", "fixed")}, status_code=400)
     except Exception as e: return JSONResponse({"error": str(e), "timezone": system_timezone(), "mode": cfg.get("mode", "fixed")}, status_code=500)
-    return JSONResponse({"open_time": o, "close_time": c, "timezone": tz, "open_percent_cap": cfg.get("open_percent", 100), "mode": cfg.get("mode", "fixed")})
+    return JSONResponse({
+        "open_time": o, 
+        "close_time": c, 
+        "timezone": tz, 
+        "open_percent_cap": cfg.get("open_percent", 100), 
+        "mode": cfg.get("mode", "fixed"),
+        "next_scheduled": _get_next_scheduled()
+    })
 
 @app.get("/config/backups")
 def list_backups(request: Request) -> JSONResponse:
