@@ -640,18 +640,37 @@
       
       if (j.next_scheduled) {
         try {
-          const d = new Date(j.next_scheduled);
+          // Handle both new format {time, action} and old format (string)
+          let timeStr, action;
+          if (typeof j.next_scheduled === 'object' && j.next_scheduled.time) {
+            timeStr = j.next_scheduled.time;
+            action = j.next_scheduled.action; // "open" or "close"
+          } else {
+            timeStr = j.next_scheduled; // backward compatibility
+            action = null;
+          }
+          
+          const d = new Date(timeStr);
           
           if (!isNaN(d.getTime())) {
             // Show just the time if it's today, otherwise show date + time
             const now = new Date();
             const isToday = d.toDateString() === now.toDateString();
             
+            let formattedTime;
             if (isToday) {
-              nextEl.textContent = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+              formattedTime = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
             } else {
-              nextEl.textContent = d.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ' + 
-                                   d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+              formattedTime = d.toLocaleDateString([], {month: 'short', day: 'numeric'}) + ' ' + 
+                               d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            }
+            
+            // Add action prefix if available
+            if (action) {
+              const actionLabel = action.charAt(0).toUpperCase() + action.slice(1);
+              nextEl.textContent = actionLabel + ' ' + formattedTime;
+            } else {
+              nextEl.textContent = formattedTime;
             }
           } else {
             nextEl.textContent = 'Not set';
