@@ -130,33 +130,36 @@ def _get_next_scheduled() -> str | None:
         
         # Parse systemctl output to find coopdoor timers
         lines = out.splitlines()
-        next_open = None
-        next_close = None
+        next_times = []
         
         for line in lines:
-            if "coopdoor-open.timer" in line:
-                # Extract the datetime from the NEXT column (first column)
+            if "coopdoor-open.timer" in line or "coopdoor-close.timer" in line:
+                # Extract the datetime from the NEXT column
+                # Format: "Sat 2025-11-01 07:31:04 EDT"
                 parts = line.split()
                 if len(parts) >= 5:
-                    # Format: "Sat 2025-11-01 07:31:04 EDT"
-                    next_open = " ".join(parts[0:4])
-            elif "coopdoor-close.timer" in line:
-                parts = line.split()
-                if len(parts) >= 5:
-                    next_close = " ".join(parts[0:4])
+                    try:
+                        # Parse: Sat 2025-11-01 07:31:04 EDT
+                        date_str = f"{parts[1]} {parts[2]}"  # "2025-11-01 07:31:04"
+                        timezone_str = parts[3] if len(parts) > 3 else "UTC"  # "EDT"
+                        
+                        # Convert to ISO 8601 format for JavaScript
+                        # Use the system timezone from the config
+                        tz = system_timezone() or "UTC"
+                        from zoneinfo import ZoneInfo
+                        dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+                        dt = dt.replace(tzinfo=ZoneInfo(tz))
+                        
+                        next_times.append(dt)
+                    except Exception:
+                        continue
         
-        # Return the soonest timer
-        if next_open and next_close:
-            try:
-                # Parse and compare times
-                from datetime import datetime
-                open_dt = datetime.strptime(next_open, "%a %Y-%m-%d %H:%M:%S")
-                close_dt = datetime.strptime(next_close, "%a %Y-%m-%d %H:%M:%S")
-                return next_open if open_dt < close_dt else next_close
-            except:
-                return next_open  # Default to open if parsing fails
+        # Return the soonest time in ISO format
+        if next_times:
+            next_dt = min(next_times)
+            return next_dt.isoformat()
         
-        return next_open or next_close
+        return None
     except Exception:
         return None
 
