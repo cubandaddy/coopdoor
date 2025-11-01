@@ -121,6 +121,45 @@ def _compute_today_times(cfg: dict[str, Any]) -> tuple[str, str, str]:
     fx = cfg.get("fixed") or {"open": "07:00", "close": "20:30"}
     return str(fx["open"]), str(fx["close"]), tz
 
+def _get_next_scheduled() -> str | None:
+    """Get the next scheduled timer from systemctl list-timers."""
+    try:
+        rc, out, err = run_command(["systemctl", "list-timers", "--all"], timeout=5.0)
+        if rc != 0:
+            return None
+        
+        # Parse systemctl output to find coopdoor timers
+        lines = out.splitlines()
+        next_open = None
+        next_close = None
+        
+        for line in lines:
+            if "coopdoor-open.timer" in line:
+                # Extract the datetime from the NEXT column (first column)
+                parts = line.split()
+                if len(parts) >= 5:
+                    # Format: "Sat 2025-11-01 07:31:04 EDT"
+                    next_open = " ".join(parts[0:4])
+            elif "coopdoor-close.timer" in line:
+                parts = line.split()
+                if len(parts) >= 5:
+                    next_close = " ".join(parts[0:4])
+        
+        # Return the soonest timer
+        if next_open and next_close:
+            try:
+                # Parse and compare times
+                from datetime import datetime
+                open_dt = datetime.strptime(next_open, "%a %Y-%m-%d %H:%M:%S")
+                close_dt = datetime.strptime(next_close, "%a %Y-%m-%d %H:%M:%S")
+                return next_open if open_dt < close_dt else next_close
+            except:
+                return next_open  # Default to open if parsing fails
+        
+        return next_open or next_close
+    except Exception:
+        return None
+
 @app.get("/healthz", response_class=PlainTextResponse)
 def healthz() -> str: return "ok"
 
@@ -135,12 +174,14 @@ def status_(request: Request) -> JSONResponse:
             "stderr": err,
             "stdout": out,
             "door_state": get_door_state(),
-            "last_action": get_last_action()
+            "last_action": get_last_action(),
+            "next_scheduled": _get_next_scheduled()
         }, status_code=502)
     data = _status_dict_from_literal(out)
     data["ok"] = True
     data["door_state"] = get_door_state()
     data["last_action"] = get_last_action()
+    data["next_scheduled"] = _get_next_scheduled()
     return JSONResponse(data)
 
 @app.get("/diag")
