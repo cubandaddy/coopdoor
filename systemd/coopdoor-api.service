@@ -1,7 +1,8 @@
 [Unit]
 Description=Coop Door API (FastAPI)
-After=network-online.target tailscaled.service
+After=network-online.target tailscaled.service coopdoor-daemon.service
 Wants=network-online.target
+Requires=coopdoor-daemon.service
 
 [Service]
 Type=simple
@@ -9,9 +10,14 @@ User=coop
 Group=coop
 WorkingDirectory=/opt/coopdoor
 EnvironmentFile=-/etc/coopdoor/env
-ExecStart=/opt/coopdoor/.venv/bin/uvicorn coopdoor_api:app --host 127.0.0.1 --port 8080 --workers 1
+ExecStart=/opt/coopdoor/.venv/bin/uvicorn coopdoor_api:app --host 0.0.0.0 --port 8080 --workers 1
 Restart=on-failure
 RestartSec=2
+
+# Shutdown handling
+TimeoutStopSec=10
+KillMode=mixed
+KillSignal=SIGTERM
 
 NoNewPrivileges=false
 PrivateTmp=true

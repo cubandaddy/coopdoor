@@ -76,12 +76,18 @@ def _reuse_existing_if_alive(connect_timeout: int) -> bool:
     return False
 
 def start_daemon() -> bool:
+    """
+    CHANGED: With persistent daemon service, this function now just checks
+    if the daemon is reachable. If systemd service is running, daemon should
+    already be alive. Only starts daemon if needed for backwards compatibility.
+    """
     cfg = load_cfg()
     RUNTIME.mkdir(parents=True, exist_ok=True)
     if status_only().get("connected"):
         return True
     if _reuse_existing_if_alive(int(cfg.get("connect_timeout", 15))):
         return True
+    # If no daemon found, start one (backwards compat with pre-service installs)
     cmd = [str(VENV_PYTHON), str(DAEMON_PATH),
            "--mac", cfg["mac"],
            "--adapter", cfg.get("adapter","hci0"),
@@ -116,7 +122,7 @@ def _open_percent(percent: float) -> None:
     
     # Home before open if configured
     if bool(cfg.get("home_before_open", False)):
-        _ = rpc({"cmd":"close", "one_shot": False}, timeout=4.0)
+        _ = rpc({"cmd":"close"}, timeout=4.0)  # CHANGED: Removed one_shot (always persistent)
         update_door_position(0)  # Track closed state
         time.sleep(float(cfg.get("min_pause_after_action", 1.0)))
     
@@ -140,7 +146,7 @@ def _open_percent(percent: float) -> None:
             print(f"Retry attempt {attempt} after {delay:.1f}s...")
             time.sleep(delay)
         
-        res = rpc({"cmd":"open_pulses", "pulses": pulses, "interval": pint, "one_shot": True}, timeout=total)
+        res = rpc({"cmd":"open_pulses", "pulses": pulses, "interval": pint}, timeout=total)  # CHANGED: No one_shot
         
         if res and res.get("started", False):
             # Success! Now wait for the motor operation to complete
@@ -193,7 +199,7 @@ def _open_pulses(n: int, interval: float | None) -> None:
     n = max(1, int(n))
     print(f"Opening (raw) → {n} pulse(s) @ {pint:.2f}s")
     total = max(6.0, n*pint + 3.0)
-    res = rpc({"cmd":"open_pulses", "pulses": n, "interval": pint, "one_shot": True}, timeout=total)
+    res = rpc({"cmd":"open_pulses", "pulses": n, "interval": pint}, timeout=total)  # CHANGED: No one_shot
     
     success = res and res.get("started", False)
     if success:
@@ -230,7 +236,7 @@ def _close() -> None:
             print(f"Retry attempt {attempt} after {delay:.1f}s...")
             time.sleep(delay)
         
-        res = rpc({"cmd":"close", "one_shot": True}, timeout=5.0)
+        res = rpc({"cmd":"close"}, timeout=5.0)  # CHANGED: No one_shot
         
         if res is not None:
             # Success! Wait for close operation (usually ~2-3 seconds)

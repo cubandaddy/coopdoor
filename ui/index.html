@@ -197,6 +197,10 @@
         <div class="status-label">Door Position</div>
         <div class="status-value" id="statusDoorPos">Unknown</div>
       </div>
+      <div class="status-item" id="statusBatteryItem">
+        <div class="status-label">🔋 Battery</div>
+        <div class="status-value" id="statusBattery">--</div>
+      </div>
       <div class="status-item">
         <div class="status-label">Mode</div>
         <div class="status-value" id="statusMode">--</div>
@@ -577,6 +581,30 @@
       } else {
         doorPosEl.textContent = 'Unknown';
       }
+    }
+
+    // Battery status
+    const batteryEl = document.getElementById('statusBattery');
+    const batteryItem = document.getElementById('statusBatteryItem');
+    
+    if (batteryEl && e && e.battery_percent !== null && e.battery_percent !== undefined) {
+      const pct = e.battery_percent;
+      batteryEl.textContent = pct + '%';
+      
+      // Color code based on battery level
+      batteryItem.classList.remove('ok', 'warn', 'bad');
+      
+      if (pct > 50) {
+        batteryItem.classList.add('ok');  // Green - Good
+      } else if (pct > 20) {
+        batteryItem.classList.add('warn');  // Yellow - Low
+      } else {
+        batteryItem.classList.add('bad');  // Red - Critical
+      }
+    } else if (batteryEl) {
+      // Battery not available
+      batteryEl.textContent = '--';
+      batteryItem.classList.remove('ok', 'warn', 'bad');
     }
 
     // Last action and result

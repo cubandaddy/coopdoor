@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CoopDoor Installation Script
-# Installs the CoopDoor system with all dependencies and services
+# CoopDoor Installation Script - Improved Architecture Edition
+# Installs CoopDoor with persistent daemon and battery support
 
 INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SYSTEM_APP_DIR="/opt/coopdoor"
@@ -33,18 +33,66 @@ check_dependencies() {
     log "Checking system dependencies"
     
     local missing=()
+    local packages=()
     
-    command -v python3 >/dev/null 2>&1 || missing+=("python3")
-    command -v pip3 >/dev/null 2>&1 || missing+=("python3-pip")
-    command -v systemctl >/dev/null 2>&1 || missing+=("systemd")
+    # Check for required commands and map to package names
+    if ! command -v python3 >/dev/null 2>&1; then
+        missing+=("python3")
+        packages+=("python3")
+    fi
+    
+    if ! command -v pip3 >/dev/null 2>&1; then
+        missing+=("pip3")
+        packages+=("python3-pip")
+    fi
+    
+    if ! command -v systemctl >/dev/null 2>&1; then
+        missing+=("systemctl")
+        packages+=("systemd")
+    fi
+    
+    # Also check for optional but recommended packages
+    local optional=()
+    if ! command -v hciconfig >/dev/null 2>&1; then
+        optional+=("bluez")
+    fi
     
     if [[ ${#missing[@]} -gt 0 ]]; then
-        error "Missing dependencies: ${missing[*]}. Please install them first."
+        log "Missing required dependencies: ${missing[*]}"
+        log ""
+        log "Installing missing packages: ${packages[*]}"
+        log "This requires sudo access and may take a few minutes..."
+        
+        # Auto-install with apt
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update || error "Failed to update package list"
+            apt-get install -y "${packages[@]}" || error "Failed to install dependencies"
+            log "✓ Successfully installed: ${packages[*]}"
+        else
+            error "apt-get not found. Please manually install: ${packages[*]}"
+        fi
+    fi
+    
+    # Install optional packages if missing
+    if [[ ${#optional[@]} -gt 0 ]]; then
+        log "Installing recommended packages: ${optional[*]}"
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get install -y "${optional[@]}" 2>/dev/null || log "Note: Could not install optional packages (${optional[*]})"
+        fi
+    fi
+    
+    # Verify python3-venv is available (needed for virtual environment)
+    if ! python3 -m venv --help >/dev/null 2>&1; then
+        log "Installing python3-venv (required for virtual environment)"
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get install -y python3-venv || log "Warning: Could not install python3-venv"
+        fi
     fi
     
     # Check Python version (need 3.10+)
     local py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-    if [[ $(echo "$py_version < 3.10" | bc -l 2>/dev/null || echo "0") -eq 1 ]]; then
+    local py_version_num=$(echo "$py_version" | tr -d '.')
+    if [[ $py_version_num -lt 310 ]]; then
         log "Warning: Python $py_version detected. Python 3.10+ recommended."
     fi
 }
@@ -81,30 +129,69 @@ setup_venv() {
     
     log "Installing Python dependencies"
     "${VENV_DIR}/bin/pip" install --upgrade pip
-    "${VENV_DIR}/bin/pip" install \
-        fastapi \
-        uvicorn[standard] \
-        bleak \
-        astral \
-        pgeocode \
-        pytz \
-        timezonefinder \
-        requests
     
-    chown -R "${APP_USER}:${APP_USER}" "${VENV_DIR}"
+    if [[ -f "${INSTALLER_DIR}/requirements.txt" ]]; then
+        log "Installing from requirements.txt"
+        log ""
+        log "⚠️  NOTE: Installing pandas (required by pgeocode) may take 5-15 minutes"
+        log "    on Raspberry Pi as it compiles from source. This is normal!"
+        log "    Please be patient..."
+        log ""
+        "${VENV_DIR}/bin/pip" install -r "${INSTALLER_DIR}/requirements.txt"
+    else
+        error "requirements.txt not found at ${INSTALLER_DIR}/requirements.txt"
+    fi
+}
+
+create_app_user() {
+    log "Creating application user: ${APP_USER}"
+    
+    if ! id "${APP_USER}" &>/dev/null; then
+        useradd -r -s /bin/false -d "${SYSTEM_APP_DIR}" -c "CoopDoor Service User" "${APP_USER}"
+    else
+        log "User ${APP_USER} already exists"
+    fi
 }
 
 install_systemd_services() {
-    log "Installing systemd services"
+    log "Installing systemd services (improved architecture)"
+    
+    # NEW: Install persistent daemon service
+    log "Installing coopdoor-daemon.service (persistent BLE connection)"
+    install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-daemon.service" "${SYSTEMD_DIR}/"
     
     # Install API service
+    log "Installing coopdoor-api.service"
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-api.service" "${SYSTEMD_DIR}/"
     
     # Install schedule timer and service
+    log "Installing coopdoor-apply-schedule timer and service"
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-apply-schedule.service" "${SYSTEMD_DIR}/"
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-apply-schedule.timer" "${SYSTEMD_DIR}/"
     
     systemctl daemon-reload
+    
+    # NEW: Enable and start daemon first
+    log "Enabling and starting coopdoor-daemon service"
+    systemctl enable coopdoor-daemon.service
+    systemctl start coopdoor-daemon.service
+    
+    # Wait for daemon to connect
+    log "Waiting for daemon to connect to BLE device..."
+    local max_wait=30
+    local waited=0
+    while [[ $waited -lt $max_wait ]]; do
+        if journalctl -u coopdoor-daemon.service --since "1 minute ago" -n 50 | grep -q "CONNECTED"; then
+            log "✓ Daemon connected to BLE device"
+            break
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+    
+    if [[ $waited -ge $max_wait ]]; then
+        log "⚠ Daemon did not connect within ${max_wait}s. Check 'journalctl -u coopdoor-daemon' for details."
+    fi
     
     log "Enabling and starting coopdoor-api service"
     systemctl enable coopdoor-api.service
@@ -165,6 +252,23 @@ EOF
 EOF
     fi
     
+    # Create daemon environment file if it doesn't exist
+    if [[ ! -f "${CONFIG_DIR}/daemon.env" ]]; then
+        log "Creating daemon environment file"
+        # Extract MAC from config.json if available, otherwise use default
+        local mac_addr="00:80:E1:22:EE:F2"
+        if [[ -f "${CONFIG_DIR}/config.json" ]]; then
+            mac_addr=$(python3 -c "import json; print(json.load(open('${CONFIG_DIR}/config.json')).get('mac', '00:80:E1:22:EE:F2'))" 2>/dev/null || echo "00:80:E1:22:EE:F2")
+        fi
+        cat > "${CONFIG_DIR}/daemon.env" <<EOF
+# CoopDoor Daemon Environment Configuration
+# Edit this file to change your BLE device settings
+COOPDOOR_MAC=${mac_addr}
+COOPDOOR_ADAPTER=hci0
+COOPDOOR_TIMEOUT=15
+EOF
+    fi
+    
     chown -R "${APP_USER}:${APP_USER}" "${CONFIG_DIR}"
     chown -R "${APP_USER}:${APP_USER}" "${BACKUP_DIR}"
     chmod 755 "${CONFIG_DIR}"
@@ -178,96 +282,127 @@ setup_sudoers() {
     install -m 0440 "${INSTALLER_DIR}/config/coopdoor-apply-sudoers" /etc/sudoers.d/coopdoor-apply
     
     # Validate sudoers syntax
-    visudo -c -f /etc/sudoers.d/coopdoor-apply >/dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-        log "Warning: sudoers file validation failed, removing"
-        rm -f /etc/sudoers.d/coopdoor-apply
-    else
-        log "Sudoers configuration installed successfully"
-    fi
-}
-
-apply_schedule() {
-    log "Applying initial schedule configuration"
-    
-    if [[ -x "${VENV_DIR}/bin/python3" && -f "${SYSTEM_APP_DIR}/schedule_apply.py" ]]; then
-        "${VENV_DIR}/bin/python3" "${SYSTEM_APP_DIR}/schedule_apply.py" || log "Warning: Schedule apply failed (this is normal on first install)"
-    fi
-}
-
-check_tailscale() {
-    if command -v tailscale >/dev/null 2>&1; then
-        log "Tailscale detected"
-        
-        if tailscale status >/dev/null 2>&1; then
-            log "Setting up Tailscale funnel for remote access"
-            tailscale serve --bg http://127.0.0.1:8080 || log "Warning: Tailscale serve setup failed"
-        else
-            log "Tailscale is installed but not connected. Run 'tailscale up' to enable remote access."
-        fi
+    if ! visudo -c -f /etc/sudoers.d/coopdoor-apply; then
+        error "Sudoers file validation failed"
     fi
 }
 
 print_success() {
-    local ip=$(hostname -I | awk '{print $1}')
-    
     cat <<EOF
 
-═══════════════════════════════════════════════════════════════
-  CoopDoor Installation Complete! 🎉
-═══════════════════════════════════════════════════════════════
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║   ✓ CoopDoor Installation Complete!                          ║
+║     (Improved Architecture with Persistent Connection)       ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
 
-Next steps:
+Next Steps:
 
-1. Configure your BLE device MAC address:
-   sudo coop-door config --set mac=XX:XX:XX:XX:XX:XX
+1. Check daemon is connected (must be within BLE range!):
+   sudo systemctl status coopdoor-daemon
+   sudo journalctl -u coopdoor-daemon -n 20
+   
+   Look for: "[TIMESTAMP] conn: CONNECTED"
+   If stuck on "scanning...", move closer to your BLE device!
+   
+2. Configure your device if needed:
+   sudo nano ${CONFIG_DIR}/daemon.env
+   (Change COOPDOOR_MAC to your door's MAC address)
+   Then restart daemon: sudo systemctl restart coopdoor-daemon
+   
+3. Test the API:
+   curl http://localhost:8080/status
+   Should show: {"connected": true, "battery_percent": XX, ...}
+   
+4. Access the web interface:
+   http://$(hostname -I | awk '{print $1}'):8080
+   Battery status will appear in the dashboard!
+   
+5. Set your automation schedule:
+   sudo nano ${CONFIG_DIR}/automation.json
 
-2. Test the connection:
-   coop-door status
+Services installed:
+  ✓ coopdoor-daemon    - Persistent BLE connection (24/7)
+  ✓ coopdoor-api       - Web API and dashboard  
+  ✓ schedule timer     - Daily automation
 
-3. Access the Web UI:
-   Local:     http://${ip}:8080/
-   Localhost: http://localhost:8080/
+Troubleshooting:
+  - Daemon won't connect? Check device is powered and in range
+  - Device already connected? Close any phone apps
+  - API shows disconnected? Check daemon logs with journalctl
+  - Battery not showing? See /opt/coopdoor/docs/ for details
 
-4. Configure your schedule in the Config tab
-
-Services:
-- API:       systemctl status coopdoor-api.service
-- Scheduler: systemctl status coopdoor-apply-schedule.timer
+Configuration files:
+  ${CONFIG_DIR}/daemon.env          - Daemon settings (MAC address, adapter)
+  ${CONFIG_DIR}/config.json         - Device settings (pulses, intervals)
+  ${CONFIG_DIR}/automation.json     - Schedule settings
+  ${CONFIG_DIR}/door_state.json     - Current door state
 
 Logs:
-- API:       journalctl -u coopdoor-api.service -f
-- Scheduler: journalctl -u coopdoor-apply-schedule.timer -f
+  sudo journalctl -u coopdoor-daemon -f    (live daemon logs)
+  sudo journalctl -u coopdoor-api -f       (live API logs)
 
-Files:
-- App:       ${SYSTEM_APP_DIR}/
-- Config:    ${CONFIG_DIR}/
-- Backups:   ${BACKUP_DIR}/
-- CLI:       ${CLI_SHIM}
-
-Documentation:
-  cat ${INSTALLER_DIR}/README.md
-
-═══════════════════════════════════════════════════════════════
 EOF
+
+    # Prompt for optional Tailscale setup
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "Optional: Remote Access Setup"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Would you like to set up Tailscale for secure remote access?"
+    echo "This enables HTTPS access from anywhere without port forwarding."
+    echo ""
+    echo "What it does:"
+    echo "  ✓ Install Tailscale (secure VPN)"
+    echo "  ✓ Set up HTTPS with automatic certificates"
+    echo "  ✓ Access via https://coop.your-tailnet.ts.net (no port number!)"
+    echo "  ✓ Connect from phone, tablet, computer"
+    echo ""
+    echo "Note: Requires interactive authentication (you'll need to open a URL)"
+    echo ""
+    read -p "Set up Tailscale now? (y/N): " -n 1 -r
+    echo ""
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        log "Starting Tailscale setup..."
+        if [[ -f "${INSTALLER_DIR}/setup-tailscale.sh" ]]; then
+            bash "${INSTALLER_DIR}/setup-tailscale.sh"
+        else
+            log "Warning: setup-tailscale.sh not found, skipping"
+            echo "You can set up Tailscale manually later with:"
+            echo "  curl -fsSL https://tailscale.com/install.sh | sh"
+            echo "  sudo tailscale up"
+            echo "  sudo tailscale serve --bg 8080"
+        fi
+    else
+        log "Skipping Tailscale setup"
+        echo ""
+        echo "You can set up Tailscale later by running:"
+        echo "  sudo ${INSTALLER_DIR}/setup-tailscale.sh"
+        echo ""
+        echo "Or manually:"
+        echo "  curl -fsSL https://tailscale.com/install.sh | sh"
+        echo "  sudo tailscale up"
+        echo "  sudo tailscale serve --bg 8080"
+        echo ""
+    fi
 }
 
 main() {
-    log "Starting CoopDoor installation"
+    log "Starting CoopDoor installation (Improved Architecture)"
     
     check_root
     check_dependencies
+    create_app_user
     install_app_files
     setup_venv
     setup_config
     setup_sudoers
     install_systemd_services
-    apply_schedule
-    check_tailscale
     
     print_success
-    
-    log "Installation completed successfully"
 }
 
 main "$@"

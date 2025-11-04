@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CoopDoor Uninstallation Script
-# Removes the CoopDoor system while optionally preserving configuration
+# CoopDoor Uninstallation Script - Improved Architecture Edition
+# Removes CoopDoor system while optionally preserving configuration
 
 SYSTEM_APP_DIR="/opt/coopdoor"
 CLI_SHIM="/usr/local/bin/coop-door"
@@ -37,7 +37,7 @@ parse_args() {
                 ;;
             -h|--help)
                 cat <<EOF
-CoopDoor Uninstaller
+CoopDoor Uninstaller (Improved Architecture Edition)
 
 Usage: sudo ./uninstall.sh [OPTIONS]
 
@@ -47,6 +47,8 @@ Options:
 
 Default behavior removes everything including configuration.
 Backups in ${BACKUP_DIR} are always preserved.
+
+This version removes the persistent daemon service (coopdoor-daemon.service).
 EOF
                 exit 0
                 ;;
@@ -61,6 +63,7 @@ stop_services() {
     log "Stopping and disabling services"
     
     local services=(
+        "coopdoor-daemon.service"          # NEW: Persistent daemon
         "coopdoor-api.service"
         "coopdoor-apply-schedule.timer"
         "coopdoor-apply-schedule.service"
@@ -87,6 +90,7 @@ remove_systemd_services() {
     log "Removing systemd service files"
     
     local files=(
+        "coopdoor-daemon.service"          # NEW: Persistent daemon
         "coopdoor-api.service"
         "coopdoor-apply-schedule.service"
         "coopdoor-apply-schedule.timer"
@@ -110,112 +114,157 @@ remove_app_files() {
     log "Removing application files"
     
     if [[ -d "${SYSTEM_APP_DIR}" ]]; then
-        log "Removing ${SYSTEM_APP_DIR}"
         rm -rf "${SYSTEM_APP_DIR}"
+        log "Removed ${SYSTEM_APP_DIR}"
     fi
     
     if [[ -f "${CLI_SHIM}" ]]; then
-        log "Removing ${CLI_SHIM}"
         rm -f "${CLI_SHIM}"
-    fi
-    
-    # Remove sudoers configuration
-    if [[ -f "/etc/sudoers.d/coopdoor-apply" ]]; then
-        log "Removing sudoers configuration"
-        rm -f "/etc/sudoers.d/coopdoor-apply"
+        log "Removed ${CLI_SHIM}"
     fi
 }
 
 remove_config() {
     if [[ "${KEEP_CONFIG}" == "true" ]]; then
-        log "Keeping configuration files in ${CONFIG_DIR}"
-        log "To remove manually later: sudo rm -rf ${CONFIG_DIR}"
-    else
-        if [[ -d "${CONFIG_DIR}" ]]; then
-            log "Removing configuration directory ${CONFIG_DIR}"
-            rm -rf "${CONFIG_DIR}"
-        fi
+        log "Preserving configuration files in ${CONFIG_DIR}"
+        return
     fi
-}
-
-cleanup_user_data() {
-    log "Checking for user data"
     
-    # Check for user's home directory cache
-    local user_homes=(/home/*)
-    for home in "${user_homes[@]}"; do
-        if [[ -d "${home}/.cache/coopdoor" ]]; then
-            log "Found user cache: ${home}/.cache/coopdoor"
-            rm -rf "${home}/.cache/coopdoor"
+    log "Removing configuration files"
+    
+    if [[ -d "${CONFIG_DIR}" ]]; then
+        # Create backup before removing
+        local backup_name="config-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+        local backup_path="${BACKUP_DIR}/${backup_name}"
+        
+        mkdir -p "${BACKUP_DIR}"
+        tar -czf "${backup_path}" -C "$(dirname ${CONFIG_DIR})" "$(basename ${CONFIG_DIR})" 2>/dev/null || true
+        
+        if [[ -f "${backup_path}" ]]; then
+            log "Configuration backed up to ${backup_path}"
         fi
         
-        if [[ -d "${home}/.config/coopdoor" ]]; then
-            log "Found user config: ${home}/.config/coopdoor"
-            rm -rf "${home}/.config/coopdoor"
-        fi
-    done
+        rm -rf "${CONFIG_DIR}"
+        log "Removed ${CONFIG_DIR}"
+    fi
 }
 
-check_tailscale() {
-    if command -v tailscale >/dev/null 2>&1; then
-        log "Tailscale detected - you may want to remove funnel/serve config manually"
-        log "Run: tailscale serve reset"
+remove_sudoers() {
+    log "Removing sudoers configuration"
+    
+    if [[ -f "/etc/sudoers.d/coopdoor-apply" ]]; then
+        rm -f "/etc/sudoers.d/coopdoor-apply"
+        log "Removed /etc/sudoers.d/coopdoor-apply"
     fi
+}
+
+remove_app_user() {
+    log "Checking for application user"
+    
+    if id "coop" &>/dev/null; then
+        # Check if user has any running processes
+        if pgrep -u coop >/dev/null 2>&1; then
+            log "Warning: User 'coop' still has running processes"
+            log "Skipping user removal. Run 'sudo userdel coop' manually if desired."
+        else
+            read -p "Remove user 'coop'? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                userdel coop
+                log "Removed user 'coop'"
+            else
+                log "Keeping user 'coop'"
+            fi
+        fi
+    fi
+}
+
+cleanup_daemon_runtime() {
+    log "Cleaning up daemon runtime files"
+    
+    # Remove daemon cache/runtime files
+    local runtime_dirs=(
+        "/run/coopdoor"
+        "/home/coop/.cache/coopdoor"
+    )
+    
+    for dir in "${runtime_dirs[@]}"; do
+        if [[ -d "${dir}" ]]; then
+            rm -rf "${dir}"
+            log "Removed ${dir}"
+        fi
+    done
 }
 
 print_summary() {
     cat <<EOF
 
-═══════════════════════════════════════════════════════════════
-  CoopDoor Uninstallation Complete
-═══════════════════════════════════════════════════════════════
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║   CoopDoor has been uninstalled                              ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
 
-Removed:
-- Application files: ${SYSTEM_APP_DIR}
-- CLI command: ${CLI_SHIM}
-- Systemd services
+What was removed:
+  ✓ Application files (${SYSTEM_APP_DIR})
+  ✓ Systemd services (including coopdoor-daemon.service)
+  ✓ CLI shim (${CLI_SHIM})
+  ✓ Sudoers configuration
+  ✓ Runtime files and caches
 
 EOF
 
     if [[ "${KEEP_CONFIG}" == "true" ]]; then
         cat <<EOF
-Preserved:
-- Configuration: ${CONFIG_DIR}
-- Backups: ${BACKUP_DIR}
+Configuration preserved:
+  • ${CONFIG_DIR}
 
-To remove configuration later:
-  sudo rm -rf ${CONFIG_DIR}
-
-To remove backups:
-  sudo rm -rf ${BACKUP_DIR}
 EOF
     else
         cat <<EOF
-Configuration removed: ${CONFIG_DIR}
+Configuration removed:
+  • ${CONFIG_DIR}
+  • Backup saved in ${BACKUP_DIR}
 
-Backups preserved: ${BACKUP_DIR}
-  (These survive uninstall and can be manually removed if needed)
-
-To remove backups:
-  sudo rm -rf ${BACKUP_DIR}
 EOF
     fi
 
     cat <<EOF
+Still present (if created):
+  • Backups: ${BACKUP_DIR}
+  • User 'coop' (if not removed)
 
-═══════════════════════════════════════════════════════════════
+To reinstall:
+  sudo ./install.sh
+
 EOF
 }
 
 confirm_uninstall() {
+    cat <<EOF
+
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║   ⚠️  CoopDoor Uninstallation                                 ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+
+This will remove:
+  • All services (including persistent daemon)
+  • Application files
+  • Python virtual environment
+  • CLI tools
+
+EOF
+
     if [[ "${KEEP_CONFIG}" == "true" ]]; then
-        echo "This will remove CoopDoor but KEEP configuration files."
+        echo "Configuration will be PRESERVED in ${CONFIG_DIR}"
     else
-        echo "This will completely remove CoopDoor including all configuration."
-        echo "(Backups in ${BACKUP_DIR} will be preserved)"
+        echo "Configuration will be REMOVED (backed up to ${BACKUP_DIR})"
     fi
-    
-    read -p "Are you sure you want to continue? [y/N] " -n 1 -r
+
+    echo ""
+    read -p "Are you sure you want to uninstall CoopDoor? (y/N): " -n 1 -r
     echo
     
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -225,7 +274,7 @@ confirm_uninstall() {
 }
 
 main() {
-    log "Starting CoopDoor uninstallation"
+    log "Starting CoopDoor uninstallation (Improved Architecture)"
     
     check_root
     parse_args "$@"
@@ -233,14 +282,15 @@ main() {
     
     stop_services
     remove_systemd_services
+    cleanup_daemon_runtime
     remove_app_files
+    remove_sudoers
     remove_config
-    cleanup_user_data
-    check_tailscale
+    remove_app_user
     
     print_summary
     
-    log "Uninstallation completed"
+    log "Uninstallation complete"
 }
 
 main "$@"

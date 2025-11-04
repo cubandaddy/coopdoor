@@ -1,0 +1,20 @@
+# CoopDoor Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# BLE Communication
+bleak>=0.21.0
+
+# Web API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Astronomy calculations (for sunrise/sunset automation)
+astral>=3.2
+
+# Geographic data (for timezone/location)
+pgeocode>=0.4.0
+pytz>=2023.3
+
+# Optional: For better performance
+# httptools>=0.6.0
+# uvloop>=0.19.0

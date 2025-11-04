@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import ast, json, os, re, time
+import ast, json, os, re, time, socket, asyncio
 from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +25,48 @@ from door_state import (
 
 TOKEN = os.getenv("COOPDOOR_TOKEN", "").strip()
 CLI = "coop-door"
+
+# === DIRECT DAEMON RPC (NEW) ===
+# FIXED: Use systemd RuntimeDirectory path to match daemon service
+DAEMON_SOCK = Path("/run/coopdoor/door.sock")
+
+async def _daemon_rpc_async(req: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
+    """
+    NEW: Direct async RPC to daemon (no subprocess).
+    Replaces subprocess CLI calls for better performance.
+    """
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_unix_connection(str(DAEMON_SOCK)),
+            timeout=5.0
+        )
+        writer.write((json.dumps(req) + "\n").encode("utf-8"))
+        await writer.drain()
+        data = await asyncio.wait_for(reader.read(65536), timeout=timeout)
+        writer.close()
+        await writer.wait_closed()
+        return json.loads(data.decode("utf-8"))
+    except (FileNotFoundError, ConnectionRefusedError):
+        raise HTTPException(status_code=503, detail="Daemon not running - check coopdoor-daemon.service")
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Daemon operation timeout")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Daemon communication error: {str(e)}")
+
+async def _wait_for_operation(timeout: float = 60.0) -> None:
+    """
+    NEW: Wait for daemon to complete current operation.
+    """
+    start = asyncio.get_event_loop().time()
+    while True:
+        if asyncio.get_event_loop().time() - start > timeout:
+            raise HTTPException(status_code=504, detail="Operation timeout")
+        status = await _daemon_rpc_async({"cmd": "status"}, timeout=5.0)
+        if not status.get("busy", False):
+            if error := status.get("error"):
+                raise HTTPException(status_code=500, detail=f"Operation failed: {error}")
+            return
+        await asyncio.sleep(0.5)
 
 # Ensure directories exist
 CONF_DIR.mkdir(parents=True, exist_ok=True)
@@ -98,14 +140,26 @@ def _save_cfg(obj: dict[str, Any]) -> None:
     AUTOMATION_PATH.write_text(json.dumps(obj, indent=2))
 
 def _effective_open_percent(requested: int | None) -> tuple[int, int]:
+    """
+    Calculate effective open percentage considering the automation cap.
+    Returns (effective_percent, cap_percent)
+    """
     cfg = _load_cfg()
     cap = int(cfg.get("open_percent", 100))
+    
+    # If cap is disabled (<=0), use requested or default to 100
     if cap <= 0:
         req = 100 if requested is None else requested
         eff = max(0, min(100, int(req)))
         return eff, 0
-    eff = max(0, min(100, cap))
-    return eff, eff
+    
+    # Cap is enabled: use requested value but don't exceed cap
+    if requested is None:
+        eff = cap  # No request, use cap as default
+    else:
+        eff = max(0, min(requested, cap))  # Use requested, but respect cap
+    
+    return eff, cap
 
 def _compute_today_times(cfg: dict[str, Any]) -> tuple[str, str, str]:
     tz = (cfg.get("timezone") or system_timezone()) or "UTC"
@@ -122,83 +176,110 @@ def _compute_today_times(cfg: dict[str, Any]) -> tuple[str, str, str]:
     return str(fx["open"]), str(fx["close"]), tz
 
 def _get_next_scheduled() -> dict | None:
-    """Get the next scheduled timer from systemctl list-timers."""
+    """Get the next scheduled action based on automation.json."""
     try:
-        rc, out, err = run_command(["systemctl", "list-timers", "--all"], timeout=5.0)
-        if rc != 0:
+        cfg = _load_cfg()
+        mode = cfg.get("mode")
+        
+        if mode not in ["fixed", "solar"]:
             return None
         
-        # Parse systemctl output to find coopdoor timers
-        lines = out.splitlines()
-        next_timers = []
+        # Get timezone (use system timezone if not in config)
+        tz_str = cfg.get("timezone") or system_timezone()
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_str)
+        now = datetime.now(tz)
         
-        for line in lines:
-            action = None
-            if "coopdoor-open.timer" in line:
-                action = "open"
-            elif "coopdoor-close.timer" in line:
-                action = "close"
-            else:
-                continue
+        if mode == "fixed":
+            # Fixed time schedule
+            fixed = cfg.get("fixed", {})
+            open_time = fixed.get("open")
+            close_time = fixed.get("close")
             
-            # Extract the datetime from the NEXT column
-            # Format: "Sat 2025-11-01 07:31:04 EDT"
-            parts = line.split()
-            if len(parts) >= 5:
+            if not open_time or not close_time:
+                return None
+            
+            # Parse times and find next event
+            events = []
+            for time_str, action in [(open_time, "open"), (close_time, "close")]:
                 try:
-                    # Parse: Sat 2025-11-01 07:31:04 EDT
-                    date_str = f"{parts[1]} {parts[2]}"  # "2025-11-01 07:31:04"
+                    hour, minute = map(int, time_str.split(":"))
+                    event_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                     
-                    # Convert to ISO 8601 format for JavaScript
-                    # Use the system timezone from the config
-                    tz = system_timezone() or "UTC"
-                    from zoneinfo import ZoneInfo
-                    dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
-                    dt = dt.replace(tzinfo=ZoneInfo(tz))
+                    # If event time has passed today, schedule for tomorrow
+                    if event_time <= now:
+                        event_time += timedelta(days=1)
                     
-                    next_timers.append({
-                        "time": dt.isoformat(),
-                        "action": action,
-                        "datetime": dt
-                    })
+                    events.append({"time": event_time.isoformat(), "action": action, "dt": event_time})
                 except Exception:
                     continue
+            
+            if events:
+                next_event = min(events, key=lambda x: x["dt"])
+                return {"time": next_event["time"], "action": next_event["action"]}
         
-        # Return the soonest timer (without the datetime object)
-        if next_timers:
-            next_timer = min(next_timers, key=lambda x: x["datetime"])
-            return {
-                "time": next_timer["time"],
-                "action": next_timer["action"]
-            }
+        elif mode == "solar":
+            # Solar schedule - calculate next sunrise/sunset
+            try:
+                open_time, close_time, mode_used = _compute_today_times(cfg)
+                
+                events = []
+                for time_str, action in [(open_time, "open"), (close_time, "close")]:
+                    try:
+                        hour, minute = map(int, time_str.split(":"))
+                        event_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                        
+                        if event_time <= now:
+                            event_time += timedelta(days=1)
+                            # Recalculate for tomorrow
+                            tomorrow = now + timedelta(days=1)
+                            # This is simplified - real calculation would need to recompute solar times
+                        
+                        events.append({"time": event_time.isoformat(), "action": action, "dt": event_time})
+                    except Exception:
+                        continue
+                
+                if events:
+                    next_event = min(events, key=lambda x: x["dt"])
+                    return {"time": next_event["time"], "action": next_event["action"]}
+            except Exception:
+                pass
         
         return None
-    except Exception:
+    except Exception as e:
         return None
 
 @app.get("/healthz", response_class=PlainTextResponse)
 def healthz() -> str: return "ok"
 
 @app.get("/status")
-def status_(request: Request) -> JSONResponse:
+async def status_(request: Request) -> JSONResponse:
+    """CHANGED: Direct daemon communication (no subprocess)."""
     _require_auth_if_configured(request)
-    rc, out, err = run_command([CLI,"status"], timeout=15.0)
-    if rc != 0:
+    try:
+        daemon_status = await _daemon_rpc_async({"cmd": "status"}, timeout=10.0)
         return JSONResponse({
-            "ok": False,
-            "rc": rc,
-            "stderr": err,
-            "stdout": out,
+            "ok": True,
+            "connected": daemon_status.get("connected", False),
+            "busy": daemon_status.get("busy", False),
+            "error": daemon_status.get("error"),
+            "battery_percent": daemon_status.get("battery_percent"),
+            "battery_last_read": daemon_status.get("battery_last_read"),
+            "metrics": daemon_status.get("metrics", {}),
             "door_state": get_door_state(),
             "last_action": get_last_action(),
             "next_scheduled": _get_next_scheduled()
-        }, status_code=502)
-    data = _status_dict_from_literal(out)
-    data["ok"] = True
-    data["door_state"] = get_door_state()
-    data["last_action"] = get_last_action()
-    data["next_scheduled"] = _get_next_scheduled()
-    return JSONResponse(data)
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({
+            "ok": False,
+            "error": str(e),
+            "door_state": get_door_state(),
+            "last_action": get_last_action(),
+            "next_scheduled": _get_next_scheduled()
+        }, status_code=503)
 
 @app.get("/diag")
 def diag_(request: Request) -> JSONResponse:
@@ -208,77 +289,150 @@ def diag_(request: Request) -> JSONResponse:
     return JSONResponse(_parse_diag(out))
 
 @app.post("/open")
-def open_(request: Request, percent: int | None = None) -> JSONResponse:
+async def open_(request: Request, percent: int | None = None) -> JSONResponse:
+    """CHANGED: Direct daemon communication (no subprocess)."""
     _require_auth_if_configured(request)
     
     eff, cap = _effective_open_percent(percent)
     
     # Get current state for delta tracking
     current_state = get_door_state()
-    base_pulses = 14  # Could load from config if needed
+    cfg = json.loads(DEVICE_CONFIG_PATH.read_text()) if DEVICE_CONFIG_PATH.exists() else {}
+    base_pulses = int(cfg.get("base_pulses", 14))
+    pulse_interval = float(cfg.get("pulse_interval", 2.0))
     new_pulses = percent_to_pulses(eff, base_pulses)
     
-    rc, out, err = run_command([CLI,"open",str(eff)])
-    success = (rc == 0)
+    try:
+        # Check daemon status
+        status = await _daemon_rpc_async({"cmd": "status"}, timeout=5.0)
+        if not status.get("connected"):
+            raise HTTPException(status_code=503, detail="BLE device not connected")
+        if status.get("busy"):
+            raise HTTPException(status_code=409, detail="Operation already in progress")
+        
+        # Send open command
+        result = await _daemon_rpc_async({
+            "cmd": "open_pulses",
+            "pulses": new_pulses,
+            "interval": pulse_interval
+        }, timeout=60.0)
+        
+        if not result.get("started"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to start operation"))
+        
+        # Wait for completion
+        await _wait_for_operation(timeout=60.0)
+        
+        # Update state - ADD pulses to current position (cumulative)
+        current_pulses = current_state.get("position_pulses", 0)
+        new_total_pulses = min(current_pulses + new_pulses, base_pulses)  # Cap at base_pulses
+        update_door_position(new_total_pulses, base_pulses)
+        last_event = {
+            "cmd": "open",
+            "requested_percent": eff,
+            "actual_pulses": new_pulses,
+            "delta_pulses": new_pulses,
+            "total_position_pulses": new_total_pulses,
+            "ok": True,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "api_direct",
+            "error": None
+        }
+        save_last_action(last_event)
+        
+        return JSONResponse({
+            "ok": True,
+            "percent": eff,
+            "enforced_cap": cap,
+            "pulses": new_pulses,
+            "last_event": last_event,
+            "door_state": get_door_state()
+        })
     
-    last_event = {
-        "cmd": "open",
-        "requested_percent": eff,
-        "actual_pulses": new_pulses if success else 0,
-        "delta_pulses": new_pulses - current_state.get("position_pulses", 0) if success else 0,
-        "ok": success,
-        "at": datetime.now(timezone.utc).isoformat(),
-        "source": "api_manual",
-        "error": err if not success else None
-    }
-    
-    # PERSIST the action (this was missing - root cause of solar not showing!)
-    save_last_action(last_event)
-    if success:
-        update_door_position(new_pulses, base_pulses)
-    
-    return JSONResponse({
-        "ok": success,
-        "rc": rc,
-        "stdout": out,
-        "stderr": err,
-        "percent": eff,
-        "enforced_cap": cap,
-        "last_event": last_event,
-        "door_state": get_door_state()
-    })
+    except HTTPException:
+        raise
+    except Exception as e:
+        last_event = {
+            "cmd": "open",
+            "requested_percent": eff,
+            "actual_pulses": 0,
+            "delta_pulses": 0,
+            "ok": False,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "api_direct",
+            "error": str(e)
+        }
+        save_last_action(last_event)
+        return JSONResponse({
+            "ok": False,
+            "error": str(e),
+            "last_event": last_event,
+            "door_state": get_door_state()
+        }, status_code=500)
 
 @app.post("/close")
-def close_(request: Request) -> JSONResponse:
+async def close_(request: Request) -> JSONResponse:
+    """CHANGED: Direct daemon communication (no subprocess)."""
     _require_auth_if_configured(request)
     
-    rc, out, err = run_command([CLI,"close"])
-    success = (rc == 0)
+    try:
+        # Check daemon status
+        status = await _daemon_rpc_async({"cmd": "status"}, timeout=5.0)
+        if not status.get("connected"):
+            raise HTTPException(status_code=503, detail="BLE device not connected")
+        if status.get("busy"):
+            raise HTTPException(status_code=409, detail="Operation already in progress")
+        
+        # Send close command
+        result = await _daemon_rpc_async({"cmd": "close"}, timeout=30.0)
+        
+        if result is None or "error" in result:
+            error_msg = result.get("error", "No response") if result else "No response"
+            raise HTTPException(status_code=500, detail=error_msg)
+        
+        # Wait for completion
+        await _wait_for_operation(timeout=30.0)
+        
+        # Update state
+        update_door_position(0)  # Closed = 0 pulses
+        last_event = {
+            "cmd": "close",
+            "requested_percent": None,
+            "actual_pulses": 0,
+            "delta_pulses": 0,
+            "ok": True,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "api_direct",
+            "error": None
+        }
+        save_last_action(last_event)
+        
+        return JSONResponse({
+            "ok": True,
+            "last_event": last_event,
+            "door_state": get_door_state()
+        })
     
-    last_event = {
-        "cmd": "close",
-        "requested_percent": None,
-        "actual_pulses": 0,
-        "delta_pulses": 0,
-        "ok": success,
-        "at": datetime.now(timezone.utc).isoformat(),
-        "source": "api_manual",
-        "error": err if not success else None
-    }
-    
-    # PERSIST the action (this was missing!)
-    save_last_action(last_event)
-    if success:
-        update_door_position(0)
-    
-    return JSONResponse({
-        "ok": success,
-        "rc": rc,
-        "stdout": out,
-        "stderr": err,
-        "last_event": last_event,
-        "door_state": get_door_state()
-    })
+    except HTTPException:
+        raise
+    except Exception as e:
+        last_event = {
+            "cmd": "close",
+            "requested_percent": None,
+            "actual_pulses": 0,
+            "delta_pulses": 0,
+            "ok": False,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "api_direct",
+            "error": str(e)
+        }
+        save_last_action(last_event)
+        return JSONResponse({
+            "ok": False,
+            "error": str(e),
+            "last_event": last_event,
+            "door_state": get_door_state()
+        }, status_code=500)
 
 @app.get("/door/state")
 def get_door_state_endpoint(request: Request) -> JSONResponse:
