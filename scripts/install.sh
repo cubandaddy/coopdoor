@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CoopDoor Installation Script - Improved Architecture Edition
-# Installs CoopDoor with persistent daemon and battery support
+# CoopDoor Installation Script - v3.5.3
+# Installs CoopDoor with persistent daemon and reliable scheduling
+# NOTE: Watchdog removed in v3.5.3 - caused false triggers, system reliable without it
 
 INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SYSTEM_APP_DIR="/opt/coopdoor"
@@ -156,7 +157,7 @@ create_app_user() {
 install_systemd_services() {
     log "Installing systemd services (improved architecture)"
     
-    # NEW: Install persistent daemon service
+    # Install persistent daemon service
     log "Installing coopdoor-daemon.service (persistent BLE connection)"
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-daemon.service" "${SYSTEMD_DIR}/"
     
@@ -169,9 +170,14 @@ install_systemd_services() {
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-apply-schedule.service" "${SYSTEMD_DIR}/"
     install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-apply-schedule.timer" "${SYSTEMD_DIR}/"
     
+    # Install safety backup timer and service (NEW - replaces cron)
+    log "Installing coopdoor-safety-backup timer and service (9 PM failsafe)"
+    install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-safety-backup.service" "${SYSTEMD_DIR}/"
+    install -m 0644 "${INSTALLER_DIR}/systemd/coopdoor-safety-backup.timer" "${SYSTEMD_DIR}/"
+    
     systemctl daemon-reload
     
-    # NEW: Enable and start daemon first
+    # Enable and start daemon first
     log "Enabling and starting coopdoor-daemon service"
     systemctl enable coopdoor-daemon.service
     systemctl start coopdoor-daemon.service
@@ -200,6 +206,10 @@ install_systemd_services() {
     log "Enabling coopdoor-apply-schedule timer"
     systemctl enable coopdoor-apply-schedule.timer
     systemctl start coopdoor-apply-schedule.timer
+    
+    log "Enabling coopdoor-safety-backup timer (9 PM failsafe)"
+    systemctl enable coopdoor-safety-backup.timer
+    systemctl start coopdoor-safety-backup.timer
 }
 
 setup_config() {
@@ -207,6 +217,16 @@ setup_config() {
     
     mkdir -p "${CONFIG_DIR}"
     mkdir -p "${BACKUP_DIR}"
+    
+    # Create log directories for improved scheduler
+    log "Setting up logging directories"
+    mkdir -p /var/log/coopdoor
+    mkdir -p /var/lib/coopdoor
+    chown -R "${APP_USER}:${APP_USER}" /var/log/coopdoor
+    chown -R "${APP_USER}:${APP_USER}" /var/lib/coopdoor
+    # Bug #10 fix: Ensure state directory is writable by coop user
+    chmod 775 /var/lib/coopdoor
+    chmod 775 /var/log/coopdoor
     
     # Create default config if it doesn't exist
     if [[ ! -f "${CONFIG_DIR}/config.json" ]]; then
@@ -287,6 +307,7 @@ setup_sudoers() {
     fi
 }
 
+
 print_success() {
     cat <<EOF
 
@@ -294,6 +315,7 @@ print_success() {
 ║                                                               ║
 ║   ✓ CoopDoor Installation Complete!                          ║
 ║     (Improved Architecture with Persistent Connection)       ║
+║     ⭐ Now with Reliable Persistent Timers!                  ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 
@@ -313,11 +335,11 @@ Next Steps:
    
 3. Test the API:
    curl http://localhost:8080/status
-   Should show: {"connected": true, "battery_percent": XX, ...}
+   Should show: {"connected": true, "door_state": {...}, ...}
    
 4. Access the web interface:
    http://$(hostname -I | awk '{print $1}'):8080
-   Battery status will appear in the dashboard!
+   Door status will appear in the dashboard!
    
 5. Set your automation schedule:
    sudo nano ${CONFIG_DIR}/automation.json
@@ -325,23 +347,36 @@ Next Steps:
 Services installed:
   ✓ coopdoor-daemon    - Persistent BLE connection (24/7)
   ✓ coopdoor-api       - Web API and dashboard  
-  ✓ schedule timer     - Daily automation
+  ✓ schedule timer     - Daily automation with PERSISTENT timers
+  ✓ safety backup      - 9 PM door close failsafe (systemd timer)
+
+🆕 Scheduling Improvements:
+  ✓ Persistent systemd timers (survive reboots!)
+  ✓ Complete audit trail in logs
+  ✓ Safety backup closes door at 9 PM
+
+Monitoring & Logs:
+  sudo journalctl -u coopdoor-daemon -f      (live daemon logs)
+  sudo journalctl -u coopdoor-api -f         (live API logs)
+  tail -f /var/log/coopdoor/schedule.log     (scheduler logs)
+  cat /var/lib/coopdoor/schedule_state.json  (current schedule)
+
+Verify Persistent Timers:
+  systemctl list-timers | grep coopdoor      (should show open/close timers)
+  ls /etc/systemd/system/coopdoor-*.timer    (timer files on disk)
 
 Troubleshooting:
   - Daemon won't connect? Check device is powered and in range
   - Device already connected? Close any phone apps
   - API shows disconnected? Check daemon logs with journalctl
   - Battery not showing? See /opt/coopdoor/docs/ for details
+  - Door didn't close? Check /var/log/coopdoor/schedule.log
 
 Configuration files:
   ${CONFIG_DIR}/daemon.env          - Daemon settings (MAC address, adapter)
   ${CONFIG_DIR}/config.json         - Device settings (pulses, intervals)
   ${CONFIG_DIR}/automation.json     - Schedule settings
   ${CONFIG_DIR}/door_state.json     - Current door state
-
-Logs:
-  sudo journalctl -u coopdoor-daemon -f    (live daemon logs)
-  sudo journalctl -u coopdoor-api -f       (live API logs)
 
 EOF
 
@@ -390,8 +425,30 @@ EOF
     fi
 }
 
+verify_installation() {
+    log "Verifying installation..."
+    
+    # Check state directory permissions
+    if [[ -d "/var/lib/coopdoor" ]]; then
+        local owner=$(stat -c '%U' /var/lib/coopdoor 2>/dev/null || stat -f '%Su' /var/lib/coopdoor 2>/dev/null)
+        if [[ "$owner" == "${APP_USER}" ]]; then
+            log "✓ State directory owned by ${APP_USER}"
+        else
+            log "⚠  Warning: State directory not owned by ${APP_USER}, fixing..."
+            chown -R "${APP_USER}:${APP_USER}" /var/lib/coopdoor
+        fi
+    fi
+    
+    # Check services exist
+    if systemctl list-unit-files | grep -q "coopdoor-daemon.service"; then
+        log "✓ Services installed"
+    else
+        log "⚠  Warning: Services may not be installed correctly"
+    fi
+}
+
 main() {
-    log "Starting CoopDoor installation (Improved Architecture)"
+    log "Starting CoopDoor installation (v3.5.3 - Watchdog Removed)"
     
     check_root
     check_dependencies
@@ -401,6 +458,7 @@ main() {
     setup_config
     setup_sudoers
     install_systemd_services
+    verify_installation
     
     print_success
 }

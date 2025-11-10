@@ -1,0 +1,12 @@
+[Unit]
+Description=CoopDoor Safety Backup Timer (9 PM Door Close)
+Documentation=https://github.com/yourusername/coopdoor
+
+[Timer]
+# Run at 9 PM every day
+OnCalendar=21:00
+# If system was off at 9 PM, run when it comes back up
+Persistent=true
+
+[Install]
+WantedBy=timers.target

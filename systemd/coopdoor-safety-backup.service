@@ -1,0 +1,18 @@
+[Unit]
+Description=CoopDoor Safety Backup (Close Door)
+Documentation=https://github.com/yourusername/coopdoor
+After=network.target coopdoor-daemon.service
+
+[Service]
+Type=oneshot
+User=coop
+Group=coop
+ExecStart=/usr/bin/curl -X POST http://localhost:8080/door/close
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=coopdoor-safety
+
+# Resource limits
+Nice=10

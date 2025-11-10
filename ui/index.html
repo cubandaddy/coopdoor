@@ -185,7 +185,7 @@
   <section id="page-control" class="card">
     <div class="row" style="margin-bottom:8px">
       <h2 class="title" style="margin:0;font-size:.9rem">Status</h2>
-      <span class="tiny" style="margin-left:auto;color:var(--muted)">v1.0.0</span>
+      <span class="tiny" style="margin-left:auto;color:var(--muted)">v3.5.3</span>
     </div>
     
     <div class="status-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
@@ -196,10 +196,6 @@
       <div class="status-item">
         <div class="status-label">Door Position</div>
         <div class="status-value" id="statusDoorPos">Unknown</div>
-      </div>
-      <div class="status-item" id="statusBatteryItem">
-        <div class="status-label">🔋 Battery</div>
-        <div class="status-value" id="statusBattery">--</div>
       </div>
       <div class="status-item">
         <div class="status-label">Mode</div>
@@ -242,7 +238,7 @@
     
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
       <button id="btnClose" class="btn neutral" onclick="closeDoor()">Close</button>
-      <button id="btnStatus" class="btn ghost" onclick="getStatus()">Refresh</button>
+      <button id="btnRefresh" class="btn ghost" onclick="refreshAll()">Refresh</button>
     </div>
   </section>
 
@@ -583,30 +579,6 @@
       }
     }
 
-    // Battery status
-    const batteryEl = document.getElementById('statusBattery');
-    const batteryItem = document.getElementById('statusBatteryItem');
-    
-    if (batteryEl && e && e.battery_percent !== null && e.battery_percent !== undefined) {
-      const pct = e.battery_percent;
-      batteryEl.textContent = pct + '%';
-      
-      // Color code based on battery level
-      batteryItem.classList.remove('ok', 'warn', 'bad');
-      
-      if (pct > 50) {
-        batteryItem.classList.add('ok');  // Green - Good
-      } else if (pct > 20) {
-        batteryItem.classList.add('warn');  // Yellow - Low
-      } else {
-        batteryItem.classList.add('bad');  // Red - Critical
-      }
-    } else if (batteryEl) {
-      // Battery not available
-      batteryEl.textContent = '--';
-      batteryItem.classList.remove('ok', 'warn', 'bad');
-    }
-
     // Last action and result
     const le = (e && e.last_action) || S.last;
     const lastActionEl = document.getElementById('statusLastAction');
@@ -649,6 +621,41 @@
       renderStatus(j);
     } catch(e){
       renderStatus({connected:false, last_action:S.last});
+    }
+  }
+
+  // Refresh all status and schedule information with visual feedback
+  async function refreshAll(){
+    const btn = document.getElementById('btnRefresh');
+    const originalText = btn.textContent;
+    
+    try {
+      // Show loading state
+      btn.classList.add('loading');
+      btn.disabled = true;
+      btn.textContent = 'Refreshing...';
+      
+      // Update both status and schedule
+      await Promise.all([
+        getStatus(),
+        refreshSchedule()
+      ]);
+      
+      // Brief success indication
+      btn.classList.remove('loading');
+      btn.textContent = '✓ Updated';
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }, 800);
+      
+    } catch(e) {
+      btn.classList.remove('loading');
+      btn.textContent = '✗ Failed';
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }, 1500);
     }
   }
 

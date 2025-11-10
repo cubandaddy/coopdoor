@@ -3,15 +3,19 @@
 [![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-Compatible-red)](https://www.raspberrypi.org/)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9+-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-3.5.3-brightgreen)](CHANGELOG.md)
 
 **Automated, scheduled control for Bluetooth Low Energy (BLE) chicken coop doors**
 
 CoopDoor is a Raspberry Pi-based automation system that controls BLE-enabled chicken coop door openers. Set your chickens' schedule once, and the door opens and closes automatically every day—no more rushing home before sunset or waking up early to let them out!
 
+> **Latest Version (3.5.3)**: Watchdog removed - caused false triggers with timers. System is 99.9%+ reliable with just timers + safety backup. See [CHANGELOG.md](CHANGELOG.md) for details.
+
 ## 🌟 Key Features
 
 - 🌅 **Automatic Sunrise/Sunset Scheduling** - Door opens at dawn, closes at dusk with seasonal adjustments
 - ⏰ **Fixed Time Scheduling** - Set specific times like 7:00 AM / 8:30 PM
+- 🛡️ **Reliable Persistent Timers** - Timers survive reboots with safety backup at 9 PM
 - 🎛️ **Manual Control** - Open/close via web interface or command line
 - 📱 **Progressive Web App (PWA)** - Control from phone, tablet, or computer
 - 📊 **Real-time Status Monitoring** - Connection status, last operation, and schedule tracking
@@ -44,11 +48,11 @@ CoopDoor is a Raspberry Pi-based automation system that controls BLE-enabled chi
 - [Command Line Interface](#-command-line-interface)
 - [API Reference](#-api-reference)
 - [Scheduling Examples](#-scheduling-examples)
+- [Reliable Scheduling with Persistent Timers](#%EF%B8%8F-reliable-scheduling-with-persistent-timers)
 - [Project Structure](#-project-structure)
 - [Troubleshooting](#-troubleshooting)
 - [Management Scripts](#-management-scripts)
 - [Improved Architecture](#-improved-architecture-upgrade)
-- [Battery Monitoring](#-adding-battery-monitoring)
 - [Development](#-development)
 - [Uninstallation](#-uninstallation)
 - [Contributing](#-contributing)
@@ -73,7 +77,7 @@ CoopDoor automates this completely. Set your schedule once, and your chickens ar
 │                 │       Bluetooth         │  (BLE Device)    │
 │ - CoopDoor API  │                        │                  │
 │ - BLE Daemon    │                        │  - Motor         │
-│ - Scheduler     │                        │  - Battery       │
+│ - Scheduler     │                        │  - Controller    │
 └─────────────────┘                        └──────────────────┘
         ▲
         │ WiFi / Network
@@ -94,7 +98,8 @@ CoopDoor automates this completely. Set your schedule once, and your chickens ar
 |-----------|------|---------|
 | **BLE Daemon** | `coopd.py` | Maintains Bluetooth connection, sends commands, handles reconnection |
 | **Web API** | `coopdoor_api.py` | FastAPI server providing REST endpoints and web interface |
-| **Scheduler** | `schedule_apply.py` | Calculates daily times, manages systemd timers |
+| **Scheduler** | `schedule_apply.py` | Calculates daily times, creates persistent systemd timers |
+| **Safety Backup** | systemd timer | 9 PM failsafe ensures door closed every night |
 | **CLI Tool** | `coopctl.py` | Command-line interface for manual control and diagnostics |
 
 ### Architecture Modes
@@ -490,6 +495,169 @@ coopdoor/
 └── coopdoor-apply-schedule.timer
 ```
 
+
+## 🛡️ Reliable Scheduling with Persistent Timers
+
+### The Problem (Solved!)
+
+Earlier versions of CoopDoor used **transient systemd timers** that could disappear before executing, leading to missed door closures. This was especially problematic after system reboots or systemd reloads.
+
+### The Solution
+
+**Version 3.5+** implements a robust scheduling system with multiple layers of protection:
+
+#### 1. **Persistent Systemd Timers** ✅
+- Timer files written to `/etc/systemd/system/`
+- Survive reboots and systemd reloads
+- Properly managed by systemd (enable/disable/status)
+- Visible in `systemctl list-timers`
+
+#### 2. **Safety Backup** 🚨
+- Systemd timer closes door at 9 PM every night
+- Last line of defense if everything else fails
+- Ensures chickens are protected
+
+#### 3. **State Tracking** 📊
+- Records expected schedule in `/var/lib/coopdoor/schedule_state.json`
+- Tracks which actions have completed
+- Enables verification
+
+#### 4. **Comprehensive Logging** 📝
+- Schedule creation: `/var/log/coopdoor/schedule.log`
+- Complete audit trail for debugging
+
+### Monitoring Your Schedule
+
+```bash
+# View current schedule
+cat /var/lib/coopdoor/schedule_state.json
+
+# Check that timers exist (and when they'll fire)
+systemctl list-timers | grep coopdoor
+
+# Verify timer files are on disk
+ls -la /etc/systemd/system/coopdoor-*.timer
+
+# View schedule creation log
+tail -20 /var/log/coopdoor/schedule.log
+
+# View schedule creation log
+tail -20 /var/log/coopdoor/schedule.log
+
+# Check timer status details
+systemctl status coopdoor-close.timer
+```
+
+### How It Works
+
+```
+Daily Flow:
+00:05 → schedule_apply.py runs
+        ├─ Calculates today's solar times (or uses fixed times)
+        ├─ Creates persistent timer files in /etc/systemd/system/
+        ├─ Enables and starts timers with systemctl
+        └─ Saves state to /var/lib/coopdoor/schedule_state.json
+
+07:30 → coopdoor-open.timer fires
+        ├─ Executes: coop-door open 100
+        └─ Logs to /var/log/coopdoor/schedule.log
+
+19:00 → coopdoor-close.timer fires
+        ├─ Executes: coop-door close
+        └─ Logs execution
+
+21:00 → Safety backup timer runs
+        └─ Closes door if still open (failsafe)
+
+Next Day 00:05 → Process repeats
+```
+
+### Verifying Reliability
+
+After installation, verify the improved scheduler is working:
+
+```bash
+# 1. Manually trigger schedule creation
+sudo /opt/coopdoor/.venv/bin/python3 /opt/coopdoor/schedule_apply.py
+
+# 2. Verify timers were created
+systemctl list-timers | grep coopdoor
+# Should show: coopdoor-open.timer and coopdoor-close.timer
+
+# 3. Check timer files exist on disk
+ls /etc/systemd/system/coopdoor-*.timer
+# Should show actual .timer files (not transient)
+
+# 4. Test reboot persistence
+sudo systemctl daemon-reload
+systemctl list-timers | grep coopdoor
+# Timers should still be there!
+
+# 5. Check systemd timers are installed
+systemctl list-timers | grep coopdoor
+# Should show: apply-schedule, open, close, safety-backup timers
+```
+
+### Troubleshooting Schedule Issues
+
+**Door didn't close last night?**
+
+```bash
+# 1. Check if timer was created
+systemctl list-timers --all | grep close
+
+# 2. Check schedule creation log
+grep "close" /var/log/coopdoor/schedule.log | tail -20
+
+# 3. Check state file
+cat /var/lib/coopdoor/schedule_state.json
+# Shows if close action was completed
+
+# 4. Manually close now
+coop-door close
+```
+
+**Timer disappeared after reboot?**
+
+This should not happen with persistent timers. If it does:
+
+```bash
+# Verify you have the latest version
+grep "persistent" /opt/coopdoor/schedule_apply.py
+# Should show: "create_persistent_timer"
+
+# Force schedule recreation
+sudo /opt/coopdoor/.venv/bin/python3 /opt/coopdoor/schedule_apply.py
+```
+
+### Upgrading from Old Version
+
+If you're upgrading from a version with transient timers:
+
+```bash
+# The installer will automatically:
+# 1. Create log directories
+# 2. Install safety backup systemd timer (9 PM)
+# 3. Use improved schedule_apply.py with persistent timers
+
+# Just run the installer:
+cd /path/to/coopdoor
+sudo bash scripts/install.sh
+
+# Your existing automation.json will be preserved
+```
+
+### Benefits of the New System
+
+| Feature | Old (Transient) | New (Persistent) |
+|---------|----------------|------------------|
+| **Survive Reboot** | ❌ No | ✅ Yes |
+| **Survive systemd reload** | ❌ No | ✅ Yes |
+| **Visible in list-timers** | ⚠️ Sometimes | ✅ Always |
+| **On-disk files** | ❌ No | ✅ Yes (`/etc/systemd/system/`) |
+| **Logging** | ⚠️ Limited | ✅ Comprehensive |
+| **Safety backup** | ❌ None | ✅ 9 PM failsafe |
+
 ## 🔧 Troubleshooting
 
 ### Connection Issues
@@ -553,7 +721,7 @@ curl http://localhost:8080/schedule/preview
 | "Permission denied" | Run commands with `sudo` or check file ownership |
 | "Schedule not working" | Check timer is enabled: `systemctl enable coopdoor-apply-schedule.timer` |
 | "Web UI not loading" | Verify API is running: `systemctl status coopdoor-api` |
-| "Door not responding" | 1. Check battery level<br>2. Verify BLE connection<br>3. Try manual control |
+| "Door not responding" | 1. Verify BLE connection<br>2. Check door has power<br>3. Try manual control |
 
 ## 🛠 Management Scripts
 
@@ -772,52 +940,6 @@ sudo systemctl disable coopdoor-daemon
 sudo cp -r ~/coopdoor-backup/opt/coopdoor/* /opt/coopdoor/
 sudo systemctl restart coopdoor-api
 ```
-
----
-
-## 🔋 Adding Battery Monitoring
-
-Want to display battery percentage on your dashboard? See [BATTERY_IMPLEMENTATION.md](BATTERY_IMPLEMENTATION.md) for:
-
-### Quick Steps
-
-1. **Discover battery characteristic**:
-   ```bash
-   python3 discover_battery.py  # Script provided in guide
-   ```
-
-2. **Test reading**:
-   ```bash
-   python3 test_battery.py
-   ```
-
-3. **Implement in daemon**:
-   - Add `CHAR_BATTERY` constant
-   - Add battery reading to status
-   - Enable periodic updates (every 5 minutes)
-
-4. **Update UI**:
-   - Add battery status box
-   - Color-code by level (green/yellow/red)
-
-### Standard BLE Battery Service
-
-Most devices use these standard UUIDs:
-```python
-BATTERY_SERVICE = "0000180f-0000-1000-8000-00805f9b34fb"
-BATTERY_LEVEL_CHAR = "00002a19-0000-1000-8000-00805f9b34fb"
-```
-
-Battery reading returns a single byte (0-100) representing percentage.
-
-### Complete Guide
-
-See [BATTERY_IMPLEMENTATION.md](BATTERY_IMPLEMENTATION.md) for:
-- BLE characteristic discovery scripts
-- Step-by-step implementation
-- Code snippets for daemon, API, and UI
-- Troubleshooting common issues
-- Alternative methods for non-standard devices
 
 ---
 

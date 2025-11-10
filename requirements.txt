@@ -14,6 +14,7 @@ astral>=3.2
 # Geographic data (for timezone/location)
 pgeocode>=0.4.0
 pytz>=2023.3
+timezonefinder>=6.2.0
 
 # Optional: For better performance
 # httptools>=0.6.0

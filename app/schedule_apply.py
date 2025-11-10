@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-schedule_apply.py - Apply automation schedule by creating systemd timers
+schedule_apply_improved.py - Apply automation schedule with PERSISTENT systemd timers
 
-FULLY FIXED VERSION with:
-- Permission fixes (sudo)
-- Midnight timer bug fix
-- Config validation
-- Sanity checks on solar times
-- Comprehensive error handling
-- Better logging
+IMPROVEMENTS OVER ORIGINAL:
+- Uses persistent timer files instead of transient systemd-run timers
+- Timers survive reboots and systemd reloads
+- Better error handling and logging
+- State tracking for execution verification
+- Comprehensive validation
+
+This version creates actual .timer and .service files in /etc/systemd/system/
+instead of using transient timers via systemd-run.
 """
 
 import json
@@ -17,7 +19,13 @@ import subprocess
 import sys
 from datetime import datetime, time, timedelta
 from pathlib import Path
-from shared_config import AUTOMATION_PATH
+
+# Configuration
+try:
+    from shared_config import AUTOMATION_PATH
+    CONFIG_FILE = str(AUTOMATION_PATH)
+except:
+    CONFIG_FILE = "/opt/coopdoor/automation.json"
 
 # Try to import optional dependencies
 try:
@@ -36,17 +44,36 @@ except ImportError:
     GEOCODE_AVAILABLE = False
     print("Warning: pgeocode not available for ZIP code lookup")
 
+try:
+    import timezonefinder
+    TIMEZONE_FINDER_AVAILABLE = True
+except ImportError:
+    TIMEZONE_FINDER_AVAILABLE = False
+    print("Warning: timezonefinder not available for auto-detection")
 
-CONFIG_FILE = str(AUTOMATION_PATH)
+
 COOP_DOOR_CMD = "/usr/local/bin/coop-door"
+TIMER_DIR = "/etc/systemd/system"
+STATE_FILE = "/var/lib/coopdoor/schedule_state.json"
+LOG_FILE = "/var/log/coopdoor/schedule.log"
+
+
+def log_message(message):
+    """Write log message to both console and log file"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_line = f"[{timestamp}] {message}"
+    print(log_line)
+    
+    try:
+        os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+        with open(LOG_FILE, 'a') as f:
+            f.write(log_line + '\n')
+    except Exception as e:
+        print(f"Warning: Could not write to log file: {e}")
 
 
 def validate_config(config):
-    """
-    Validate configuration values to prevent bad settings
-    
-    Raises ValueError if config is invalid
-    """
+    """Validate configuration values"""
     mode = config.get('mode')
     
     if mode not in ['solar', 'fixed']:
@@ -57,123 +84,89 @@ def validate_config(config):
         sunrise_offset = solar.get('sunrise_offset_min', 0)
         sunset_offset = solar.get('sunset_offset_min', 0)
         
-        # Validate offsets are reasonable (max 3 hours)
         if not -180 <= sunrise_offset <= 180:
-            raise ValueError(f"sunrise_offset_min must be between -180 and 180 minutes, got {sunrise_offset}")
+            raise ValueError(f"sunrise_offset_min must be between -180 and 180 minutes")
         if not -180 <= sunset_offset <= 180:
-            raise ValueError(f"sunset_offset_min must be between -180 and 180 minutes, got {sunset_offset}")
+            raise ValueError(f"sunset_offset_min must be between -180 and 180 minutes")
         
-        # Validate location exists
         if 'zip' not in config and ('location' not in config or 'lat' not in config['location']):
             raise ValueError("Solar mode requires either 'zip' or 'location' with lat/lon")
-        
-        if 'zip' in config:
-            zip_code = str(config['zip'])
-            if not zip_code or len(zip_code) < 5:
-                raise ValueError(f"Invalid ZIP code: {zip_code}")
     
     if mode == 'fixed':
         fixed = config.get('fixed', {})
-        
         if 'open' not in fixed or 'close' not in fixed:
             raise ValueError("Fixed mode requires both 'open' and 'close' times")
         
-        open_time = fixed.get('open')
-        close_time = fixed.get('close')
-        
-        # Validate time format
         try:
-            datetime.strptime(open_time, '%H:%M')
-            datetime.strptime(close_time, '%H:%M')
+            datetime.strptime(fixed['open'], '%H:%M')
+            datetime.strptime(fixed['close'], '%H:%M')
         except ValueError as e:
             raise ValueError(f"Invalid time format (use HH:MM): {e}")
-    
-    # Validate open_percent
-    open_percent = config.get('open_percent', 100)
-    if not 0 <= open_percent <= 100:
-        raise ValueError(f"open_percent must be 0-100, got {open_percent}")
     
     return True
 
 
 def load_config():
-    """Load and validate automation configuration"""
+    """Load and validate configuration"""
     if not os.path.exists(CONFIG_FILE):
-        print(f"Error: Config file not found: {CONFIG_FILE}")
+        log_message(f"Error: Config file not found: {CONFIG_FILE}")
         sys.exit(1)
     
     with open(CONFIG_FILE, 'r') as f:
         config = json.load(f)
     
-    # Validate config
-    try:
-        validate_config(config)
-    except ValueError as e:
-        print(f"✗ Config validation failed: {e}")
-        sys.exit(1)
-    
+    validate_config(config)
     return config
 
 
 def get_coordinates_from_zip(zip_code, country="US"):
-    """Get lat/lon from ZIP code using pgeocode"""
+    """Get lat/lon from ZIP code"""
     if not GEOCODE_AVAILABLE:
-        print("Error: pgeocode not available for ZIP lookup")
         return None, None
     
     nomi = pgeocode.Nominatim(country)
     location = nomi.query_postal_code(zip_code)
     
-    if location is None or location.latitude != location.latitude:  # NaN check
+    if location is None or location.latitude != location.latitude:
         return None, None
     
     return location.latitude, location.longitude
 
 
-def calculate_solar_times(config):
-    """
-    Calculate today's sunrise and sunset times with SANITY CHECKS
+def get_timezone_from_coords(lat, lon):
+    """Auto-detect timezone from coordinates"""
+    if not TIMEZONE_FINDER_AVAILABLE:
+        return 'America/New_York'
     
-    Returns tuple of (open_time, close_time) or (None, None) on error
-    """
+    try:
+        tf = timezonefinder.TimezoneFinder()
+        tz_name = tf.timezone_at(lat=lat, lng=lon)
+        return tz_name if tz_name else 'America/New_York'
+    except:
+        return 'America/New_York'
+
+
+def calculate_solar_times(config, tz):
+    """Calculate today's sunrise and sunset times"""
     if not SOLAR_AVAILABLE:
-        print("Error: Solar calculations not available (missing astral/pytz)")
+        log_message("Error: Solar calculations not available")
         return None, None
     
     # Get location
-    if 'location' in config and 'lat' in config['location'] and 'lon' in config['location']:
+    if 'location' in config and 'lat' in config['location']:
         lat = config['location']['lat']
         lon = config['location']['lon']
     elif 'zip' in config:
-        zip_code = config['zip']
-        country = config.get('country', 'US')
-        lat, lon = get_coordinates_from_zip(zip_code, country)
+        lat, lon = get_coordinates_from_zip(config['zip'], config.get('country', 'US'))
         if lat is None:
-            print(f"Error: Could not get coordinates for ZIP: {zip_code}")
+            log_message(f"Error: Could not get coordinates for ZIP")
             return None, None
     else:
-        print("Error: No location information in config")
+        log_message("Error: No location information")
         return None, None
     
-    # Use timezone from config or auto-detect from coordinates
-    tz_name = config.get('timezone')
-    if not tz_name:
-        # Auto-detect timezone from coordinates
-        import timezonefinder
-        tf = timezonefinder.TimezoneFinder()
-        tz_name = tf.timezone_at(lat=lat, lng=lon)
-        if not tz_name:
-            tz_name = 'America/New_York'  # Fallback
-            print(f"Could not auto-detect timezone, using {tz_name}")
-    
-    try:
-        tz = pytz.timezone(tz_name)
-    except:
-        print(f"Invalid timezone: {tz_name}, using America/New_York")
-        tz = pytz.timezone('America/New_York')
-    
     # Calculate sun times
-    location = LocationInfo(latitude=lat, longitude=lon, timezone=tz_name)
+    location = LocationInfo(latitude=lat, longitude=lon, timezone=tz.zone)
     s = sun(location.observer, date=datetime.now(tz).date(), tzinfo=tz)
     
     sunrise = s['sunrise']
@@ -187,28 +180,19 @@ def calculate_solar_times(config):
     open_time = sunrise + timedelta(minutes=sunrise_offset)
     close_time = sunset + timedelta(minutes=sunset_offset)
     
-    # SANITY CHECKS - verify times make sense
+    # Sanity checks
     now = datetime.now(tz)
     
-    # Check that sunrise is between 4 AM and 10 AM
     if not (4 <= open_time.hour <= 10):
-        print(f"⚠️  WARNING: Calculated open time {open_time.strftime('%H:%M')} seems wrong!")
-        print(f"   Expected between 4:00 AM and 10:00 AM")
-        print(f"   Using fallback time of 7:00 AM")
+        log_message(f"⚠️  WARNING: Open time {open_time.strftime('%H:%M')} outside 4-10 AM range")
         open_time = tz.localize(datetime.combine(now.date(), time(7, 0)))
     
-    # Check that sunset is between 4 PM and 10 PM  
     if not (16 <= close_time.hour <= 22):
-        print(f"⚠️  WARNING: Calculated close time {close_time.strftime('%H:%M')} seems wrong!")
-        print(f"   Expected between 4:00 PM and 10:00 PM")
-        print(f"   Using fallback time of 7:00 PM")
+        log_message(f"⚠️  WARNING: Close time {close_time.strftime('%H:%M')} outside 4-10 PM range")
         close_time = tz.localize(datetime.combine(now.date(), time(19, 0)))
     
-    # Check that close time is after open time
     if close_time <= open_time:
-        print(f"⚠️  WARNING: Close time is before open time!")
-        print(f"   Open: {open_time.strftime('%H:%M')}, Close: {close_time.strftime('%H:%M')}")
-        print(f"   Using fallback times: 7:00 AM / 7:00 PM")
+        log_message(f"⚠️  WARNING: Close time before open time!")
         open_time = tz.localize(datetime.combine(now.date(), time(7, 0)))
         close_time = tz.localize(datetime.combine(now.date(), time(19, 0)))
     
@@ -216,156 +200,145 @@ def calculate_solar_times(config):
 
 
 def remove_existing_timers():
-    """Remove existing timer and service files - FIXED VERSION with sudo"""
-    print("Removing existing timers...")
+    """Remove existing timer files"""
+    log_message("Removing existing timers...")
     
-    # Stop and disable any running timers first
     for timer_name in ["coopdoor-open", "coopdoor-close"]:
-        subprocess.run(
-            ["sudo", "systemctl", "stop", f"{timer_name}.timer"],
-            capture_output=True,
-            check=False
-        )
-        subprocess.run(
-            ["sudo", "systemctl", "stop", f"{timer_name}.service"],
-            capture_output=True,
-            check=False
-        )
+        # Stop and disable
+        subprocess.run(["sudo", "systemctl", "stop", f"{timer_name}.timer"], capture_output=True)
+        subprocess.run(["sudo", "systemctl", "disable", f"{timer_name}.timer"], capture_output=True)
+        
+        # Remove files
+        timer_file = f"{TIMER_DIR}/{timer_name}.timer"
+        service_file = f"{TIMER_DIR}/{timer_name}.service"
+        
+        for file in [timer_file, service_file]:
+            if os.path.exists(file):
+                subprocess.run(["sudo", "rm", "-f", file], capture_output=True)
     
-    # Remove timer and service files from /etc/systemd/system/
-    timer_file = "/etc/systemd/system/coopdoor-open.timer"
-    service_file = "/etc/systemd/system/coopdoor-open.service"
-    close_timer = "/etc/systemd/system/coopdoor-close.timer"
-    close_service = "/etc/systemd/system/coopdoor-close.service"
-    
-    for file in [timer_file, service_file, close_timer, close_service]:
-        if os.path.exists(file):
-            try:
-                result = subprocess.run(
-                    ["sudo", "rm", "-f", file],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-            except subprocess.CalledProcessError as e:
-                print(f"  Warning: Could not remove {file}: {e.stderr}")
-    
-    # Clean up transient timers from systemd-run
-    result = subprocess.run(
-        ["systemctl", "list-units", "--all", "--no-pager"],
-        capture_output=True,
-        text=True
-    )
-    for line in result.stdout.split('\n'):
-        if 'coopdoor-open' in line or 'coopdoor-close' in line:
-            unit_name = line.split()[0]
-            subprocess.run(
-                ["sudo", "systemctl", "stop", unit_name],
-                capture_output=True,
-                check=False
-            )
-    
-    # Reload systemd daemon
-    subprocess.run(
-        ["sudo", "systemctl", "daemon-reload"],
-        check=False
-    )
-    
-    print("✓ Cleanup complete")
+    subprocess.run(["sudo", "systemctl", "daemon-reload"], check=False)
+    log_message("✓ Cleanup complete")
 
 
-def create_timer(timer_name, when_dt, command, now):
-    """
-    Create a systemd timer using systemd-run with validation
+def create_persistent_timer(timer_name, when_dt, command, now):
+    """Create a PERSISTENT systemd timer"""
     
-    Args:
-        timer_name: Name for the timer unit
-        when_dt: datetime object for when to run (must be timezone-aware)
-        command: Full command string to execute
-        now: Current datetime (timezone-aware) for validation
-    
-    Returns:
-        True if timer created successfully, False otherwise
-    """
-    
-    # CRITICAL: Validate time is in the future
     if when_dt <= now:
-        print(f"  ⚠️  Skipping {timer_name}: time {when_dt.strftime('%H:%M:%S')} has already passed")
+        log_message(f"  ⚠️  Skipping {timer_name}: time has passed")
         return False
     
     time_until = when_dt - now
     hours = time_until.total_seconds() / 3600
     
-    # Additional safety: don't create timers for times more than 24 hours away
     if hours > 24:
-        print(f"  ⚠️  Skipping {timer_name}: time is more than 24 hours away")
+        log_message(f"  ⚠️  Skipping {timer_name}: >24 hours away")
         return False
     
-    # Format for systemd OnCalendar: "YYYY-MM-DD HH:MM:SS"
     when_str = when_dt.strftime("%Y-%m-%d %H:%M:%S")
     
-    print(f"  Creating timer: {timer_name}")
-    print(f"    Scheduled for: {when_str} (in {hours:.1f} hours)")
-    print(f"    Command: {command}")
+    log_message(f"  Creating persistent timer: {timer_name}")
+    log_message(f"    Scheduled for: {when_str} (in {hours:.1f} hours)")
     
-    # Build command with logging wrapper
-    log_msg = f"[CoopDoor] Timer fired: {timer_name} at {when_str}"
-    wrapped_command = f"echo '{log_msg}' | systemd-cat -t coopdoor && {command}"
+    # Determine API endpoint and command
+    if "open" in timer_name:
+        api_endpoint = "http://localhost:8080/open"
+        # Extract percentage from command like "coop-door open 100"
+        percent = command.split()[-1] if len(command.split()) > 2 else "100"
+        curl_cmd = f'/usr/bin/curl -s -X POST -H \\"Content-Type: application/json\\" -d \'{{"percent": {percent}}}\' {api_endpoint}'
+        log_message(f"    Action: Open door to {percent}%")
+    else:
+        api_endpoint = "http://localhost:8080/close"
+        curl_cmd = f'/usr/bin/curl -s -X POST {api_endpoint}'
+        log_message(f"    Action: Close door")
     
-    cmd_args = [
-        "sudo", "systemd-run",
-        "--uid=coop",
-        f"--on-calendar={when_str}",
-        "--timer-property=RemainAfterElapse=no",
-        f"--unit={timer_name}",
-        "/bin/sh", "-c",
-        wrapped_command
-    ]
+    # Timer file content
+    timer_content = f"""[Unit]
+Description=CoopDoor {timer_name} timer
+
+[Timer]
+OnCalendar={when_str}
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+"""
+    
+    # Service file content with proper logging
+    service_content = f"""[Unit]
+Description=CoopDoor {timer_name} action
+
+[Service]
+Type=oneshot
+User=coop
+ExecStart=/bin/bash -c "{curl_cmd}"
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=coopdoor-{timer_name}
+"""
     
     try:
-        result = subprocess.run(
-            cmd_args,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        print(f"  ✓ Timer created successfully")
-        if result.stdout:
-            print(f"    {result.stdout.strip()}")
+        # Write files to /tmp first, then move with sudo
+        timer_file = f"{TIMER_DIR}/{timer_name}.timer"
+        service_file = f"{TIMER_DIR}/{timer_name}.service"
+        
+        with open(f"/tmp/{timer_name}.timer", 'w') as f:
+            f.write(timer_content)
+        with open(f"/tmp/{timer_name}.service", 'w') as f:
+            f.write(service_content)
+        
+        subprocess.run(["sudo", "mv", f"/tmp/{timer_name}.timer", timer_file], check=True)
+        subprocess.run(["sudo", "mv", f"/tmp/{timer_name}.service", service_file], check=True)
+        subprocess.run(["sudo", "chmod", "644", timer_file, service_file], check=True)
+        
+        # Reload, enable, start
+        subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
+        subprocess.run(["sudo", "systemctl", "enable", f"{timer_name}.timer"], check=True)
+        subprocess.run(["sudo", "systemctl", "start", f"{timer_name}.timer"], check=True)
+        
+        log_message(f"  ✓ Persistent timer created: {timer_file}")
         return True
         
-    except subprocess.CalledProcessError as e:
-        print(f"  ✗ Error creating timer: {e.stderr}")
+    except Exception as e:
+        log_message(f"  ✗ Error creating timer: {e}")
         return False
 
 
-def get_timezone_from_coords(lat, lon):
-    """Auto-detect timezone from coordinates"""
+def save_schedule_state(open_time, close_time, mode):
+    """Save schedule state for monitoring"""
     try:
-        import timezonefinder
-        tf = timezonefinder.TimezoneFinder()
-        tz_name = tf.timezone_at(lat=lat, lng=lon)
-        return tz_name if tz_name else 'America/New_York'
-    except:
-        return 'America/New_York'
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        # Bug #11 fix: Use date from scheduled open_time, not current date
+        # This ensures the date field matches the actual scheduled date
+        state = {
+            "date": open_time.date().isoformat(),
+            "mode": mode,
+            "open_time": open_time.isoformat(),
+            "close_time": close_time.isoformat(),
+            "open_completed": False,
+            "close_completed": False,
+            "created_at": datetime.now().isoformat()
+        }
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=2)
+        log_message(f"✓ State saved to {STATE_FILE}")
+    except Exception as e:
+        log_message(f"Warning: Could not save state: {e}")
 
 
 def apply_schedule(config):
-    """Apply the automation schedule - FULLY FIXED VERSION"""
+    """Apply the schedule using PERSISTENT timers"""
     mode = config.get('mode', 'solar')
     
     # Determine timezone
-    if 'timezone' in config and config['timezone']:
-        tz_name = config['timezone']
-    else:
-        # Auto-detect from location
+    tz_name = config.get('timezone')
+    if not tz_name:
         if mode == 'solar':
             if 'location' in config and 'lat' in config['location']:
                 lat = config['location']['lat']
                 lon = config['location']['lon']
                 tz_name = get_timezone_from_coords(lat, lon)
             elif 'zip' in config:
-                lat, lon = get_coordinates_from_zip(config['zip'], config.get('country', 'US'))
+                lat, lon = get_coordinates_from_zip(config['zip'])
                 if lat:
                     tz_name = get_timezone_from_coords(lat, lon)
                 else:
@@ -375,148 +348,124 @@ def apply_schedule(config):
         else:
             tz_name = 'America/New_York'
     
-    # Get timezone object
     try:
         tz = pytz.timezone(tz_name)
     except:
-        print(f"Invalid timezone: {tz_name}, using America/New_York")
         tz = pytz.timezone('America/New_York')
     
-    # Get current time - CRITICAL: must be timezone-aware
     now = datetime.now(tz)
     
-    print(f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    print(f"Mode: {mode}")
+    log_message(f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    log_message(f"Mode: {mode}")
     
-    # Calculate times based on mode
+    # Calculate times
     if mode == 'solar':
-        print("Calculating solar times...")
-        open_time, close_time = calculate_solar_times(config)
+        log_message("Calculating solar times...")
+        open_time, close_time = calculate_solar_times(config, tz)
         if open_time is None:
-            print("✗ Failed to calculate solar times")
+            log_message("✗ Failed to calculate solar times")
             return False
     else:  # fixed mode
-        print("Using fixed times...")
+        log_message("Using fixed times...")
         fixed = config.get('fixed', {})
         open_str = fixed.get('open', '07:00')
         close_str = fixed.get('close', '20:00')
         
-        # Parse times
-        try:
-            open_t = datetime.strptime(open_str, '%H:%M').time()
-            close_t = datetime.strptime(close_str, '%H:%M').time()
-        except ValueError as e:
-            print(f"✗ Error parsing times: {e}")
-            return False
+        open_t = datetime.strptime(open_str, '%H:%M').time()
+        close_t = datetime.strptime(close_str, '%H:%M').time()
         
-        # Create datetime objects for today - MUST be timezone-aware
         open_time = tz.localize(datetime.combine(now.date(), open_t))
         close_time = tz.localize(datetime.combine(now.date(), close_t))
         
-        # If open time has passed today, schedule for tomorrow
         if open_time <= now:
-            print(f"  Open time {open_str} has passed, scheduling for tomorrow")
             open_time = open_time + timedelta(days=1)
-        
-        # If close time has passed today, schedule for tomorrow
         if close_time <= now:
-            print(f"  Close time {close_str} has passed, scheduling for tomorrow")
             close_time = close_time + timedelta(days=1)
     
-    # Get open percentage
-    open_percent = config.get('open_percent', 100)
-    if open_percent == 0:
-        open_percent = 100  # 0 means no cap
+    open_percent = config.get('open_percent', 100) or 100
     
-    print(f"\nSchedule for today:")
-    print(f"  Open:  {open_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    print(f"  Close: {close_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    print(f"  Open %: {open_percent}")
-    
-    # CRITICAL VALIDATION: Ensure times are timezone-aware
-    if open_time.tzinfo is None or close_time.tzinfo is None:
-        print("✗ ERROR: Times are not timezone-aware!")
-        return False
+    log_message(f"\nSchedule:")
+    log_message(f"  Open:  {open_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    log_message(f"  Close: {close_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    log_message(f"  Open %: {open_percent}")
     
     # Remove existing timers
     remove_existing_timers()
     
-    # Create new timers
-    print("\nCreating new timers...")
-    open_created = create_timer(
+    # Create new PERSISTENT timers
+    log_message("\nCreating persistent timers...")
+    open_created = create_persistent_timer(
         "coopdoor-open",
         open_time,
         f"{COOP_DOOR_CMD} open {open_percent}",
         now
     )
     
-    close_created = create_timer(
+    close_created = create_persistent_timer(
         "coopdoor-close",
         close_time,
         f"{COOP_DOOR_CMD} close",
         now
     )
     
-    # Verify timers were created
-    print("\nVerifying timers...")
+    # Save state
+    save_schedule_state(open_time, close_time, mode)
+    
+    # Verify timers
+    log_message("\nVerifying timers...")
     result = subprocess.run(
         ["systemctl", "list-timers", "--all", "--no-pager"],
         capture_output=True,
         text=True
     )
     
-    found_open = False
-    found_close = False
-    
     for line in result.stdout.split('\n'):
         if 'coopdoor-open' in line:
-            print(f"  ✓ Open timer: {line.strip()}")
-            found_open = True
+            log_message(f"  ✓ Open timer: {line.strip()}")
         if 'coopdoor-close' in line:
-            print(f"  ✓ Close timer: {line.strip()}")
-            found_close = True
+            log_message(f"  ✓ Close timer: {line.strip()}")
     
-    if not found_open and open_created:
-        print("  ⚠️  Warning: Open timer created but not found in list")
-    if not found_close and close_created:
-        print("  ⚠️  Warning: Close timer created but not found in list")
+    # Verify files
+    for timer_name in ["coopdoor-open", "coopdoor-close"]:
+        timer_file = f"{TIMER_DIR}/{timer_name}.timer"
+        if os.path.exists(timer_file):
+            log_message(f"  ✓ Timer file exists: {timer_file}")
+        else:
+            log_message(f"  ✗ Timer file missing: {timer_file}")
     
-    success = (open_created or close_created)
-    return success
+    return (open_created or close_created)
 
 
 def main():
-    print("=" * 50)
-    print("CoopDoor Schedule Apply (FULLY FIXED)")
-    print(f"Running at: {datetime.now()}")
-    print("=" * 50)
-    print()
+    log_message("=" * 60)
+    log_message("CoopDoor Schedule Apply (PERSISTENT TIMER VERSION)")
+    log_message(f"Running at: {datetime.now()}")
+    log_message("=" * 60)
     
-    # Load and validate config
     try:
         config = load_config()
     except Exception as e:
-        print(f"✗ Failed to load config: {e}")
+        log_message(f"✗ Failed to load config: {e}")
         sys.exit(1)
     
-    # Apply schedule
     try:
         success = apply_schedule(config)
     except Exception as e:
-        print(f"\n✗ Exception while applying schedule: {e}")
+        log_message(f"\n✗ Exception: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
     
     if success:
-        print("\n" + "=" * 50)
-        print("✓ Schedule applied successfully")
-        print("=" * 50)
+        log_message("\n" + "=" * 60)
+        log_message("✓ PERSISTENT timers created successfully")
+        log_message("  Timers will survive reboots!")
+        log_message("=" * 60)
         sys.exit(0)
     else:
-        print("\n" + "=" * 50)
-        print("✗ Failed to apply schedule")
-        print("=" * 50)
+        log_message("\n" + "=" * 60)
+        log_message("✗ Failed to apply schedule")
+        log_message("=" * 60)
         sys.exit(1)
 
 

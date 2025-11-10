@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CoopDoor Uninstallation Script - Improved Architecture Edition
+# CoopDoor Uninstallation Script - v3.5.3
 # Removes CoopDoor system while optionally preserving configuration
+# NOTE: Also removes watchdog if upgrading from v3.5.2 or earlier
 
 SYSTEM_APP_DIR="/opt/coopdoor"
 CLI_SHIM="/usr/local/bin/coop-door"
@@ -37,7 +38,7 @@ parse_args() {
                 ;;
             -h|--help)
                 cat <<EOF
-CoopDoor Uninstaller (Improved Architecture Edition)
+CoopDoor Uninstaller (v3.5.3)
 
 Usage: sudo ./uninstall.sh [OPTIONS]
 
@@ -48,7 +49,12 @@ Options:
 Default behavior removes everything including configuration.
 Backups in ${BACKUP_DIR} are always preserved.
 
-This version removes the persistent daemon service (coopdoor-daemon.service).
+This version removes:
+  • Persistent daemon service (coopdoor-daemon.service)
+  • Persistent timer files (coopdoor-*.timer)
+  • Watchdog timer (hourly monitoring via systemd)
+  • Safety backup timer (9 PM door close via systemd)
+  • Log and state directories
 EOF
                 exit 0
                 ;;
@@ -63,10 +69,14 @@ stop_services() {
     log "Stopping and disabling services"
     
     local services=(
-        "coopdoor-daemon.service"          # NEW: Persistent daemon
+        "coopdoor-daemon.service"
         "coopdoor-api.service"
         "coopdoor-apply-schedule.timer"
         "coopdoor-apply-schedule.service"
+        "coopdoor-watchdog.timer"
+        "coopdoor-watchdog.service"
+        "coopdoor-safety-backup.timer"
+        "coopdoor-safety-backup.service"
         "coopdoor-open.timer"
         "coopdoor-open.service"
         "coopdoor-close.timer"
@@ -90,10 +100,14 @@ remove_systemd_services() {
     log "Removing systemd service files"
     
     local files=(
-        "coopdoor-daemon.service"          # NEW: Persistent daemon
+        "coopdoor-daemon.service"
         "coopdoor-api.service"
         "coopdoor-apply-schedule.service"
         "coopdoor-apply-schedule.timer"
+        "coopdoor-watchdog.service"
+        "coopdoor-watchdog.timer"
+        "coopdoor-safety-backup.service"
+        "coopdoor-safety-backup.timer"
         "coopdoor-open.service"
         "coopdoor-open.timer"
         "coopdoor-close.service"
@@ -158,6 +172,34 @@ remove_sudoers() {
     fi
 }
 
+remove_log_directories() {
+    log "Removing log and state directories"
+    
+    local dirs=(
+        "/var/log/coopdoor"
+        "/var/lib/coopdoor"
+    )
+    
+    for dir in "${dirs[@]}"; do
+        if [[ -d "${dir}" ]]; then
+            # Backup logs before removing
+            if [[ -d "${dir}" ]] && [[ $(ls -A "${dir}" 2>/dev/null) ]]; then
+                local backup_name="logs-$(basename ${dir})-$(date +%Y%m%d-%H%M%S).tar.gz"
+                local backup_path="${BACKUP_DIR}/${backup_name}"
+                mkdir -p "${BACKUP_DIR}"
+                tar -czf "${backup_path}" -C "$(dirname ${dir})" "$(basename ${dir})" 2>/dev/null || true
+                
+                if [[ -f "${backup_path}" ]]; then
+                    log "Backed up ${dir} to ${backup_path}"
+                fi
+            fi
+            
+            rm -rf "${dir}"
+            log "Removed ${dir}"
+        fi
+    done
+}
+
 remove_app_user() {
     log "Checking for application user"
     
@@ -208,6 +250,9 @@ print_summary() {
 What was removed:
   ✓ Application files (${SYSTEM_APP_DIR})
   ✓ Systemd services (including coopdoor-daemon.service)
+  ✓ Persistent timer files (/etc/systemd/system/coopdoor-*.timer)
+  ✓ Systemd timers (watchdog, safety backup)
+  ✓ Log directories (/var/log/coopdoor, /var/lib/coopdoor)
   ✓ CLI shim (${CLI_SHIM})
   ✓ Sudoers configuration
   ✓ Runtime files and caches
@@ -251,8 +296,11 @@ confirm_uninstall() {
 
 This will remove:
   • All services (including persistent daemon)
+  • Persistent timer files
+  • Systemd timers (watchdog, safety backup)
   • Application files
   • Python virtual environment
+  • Log and state directories
   • CLI tools
 
 EOF
@@ -274,7 +322,7 @@ EOF
 }
 
 main() {
-    log "Starting CoopDoor uninstallation (Improved Architecture)"
+    log "Starting CoopDoor uninstallation (v3.5.3)"
     
     check_root
     parse_args "$@"
@@ -285,6 +333,7 @@ main() {
     cleanup_daemon_runtime
     remove_app_files
     remove_sudoers
+    remove_log_directories
     remove_config
     remove_app_user
     
